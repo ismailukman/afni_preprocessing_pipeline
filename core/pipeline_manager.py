@@ -118,9 +118,20 @@ class PipelineManager(QObject):
         """Set the list of subjects to process"""
         self.subjects = subjects
         enabled_scripts = self.get_enabled_scripts()
+        start_from = self.config.get("start_from_step", "auto")
+
+        # If user picked a specific start step, build the force-skip set:
+        # every enabled script *before* the chosen one is forced to skip.
+        force_skip_set = set()
+        if start_from and start_from != "auto":
+            for s in enabled_scripts:
+                if s.name == start_from:
+                    break
+                force_skip_set.add(s.name)
+
         for subject in subjects:
-            # Only initialize status for enabled scripts
-            subject.status = {script.name: "pending" for script in enabled_scripts}
+            subject.status = {s.name: "pending" for s in enabled_scripts}
+            subject.force_skip = set(force_skip_set)
 
     def add_subjects(self, new_subjects: List[Subject]):
         """Append subjects to a running pipeline.  Skips IDs already queued.
@@ -131,11 +142,19 @@ class PipelineManager(QObject):
         """
         existing_ids = {s.subject_id for s in self.subjects}
         enabled_scripts = self.get_enabled_scripts()
+        start_from = self.config.get("start_from_step", "auto")
+        force_skip_set = set()
+        if start_from and start_from != "auto":
+            for s in enabled_scripts:
+                if s.name == start_from:
+                    break
+                force_skip_set.add(s.name)
         added = []
         for subject in new_subjects:
             if subject.subject_id in existing_ids:
                 continue
             subject.status = {script.name: "pending" for script in enabled_scripts}
+            subject.force_skip = set(force_skip_set)
             self.subjects.append(subject)
             existing_ids.add(subject.subject_id)
             added.append(subject)
@@ -727,52 +746,88 @@ class PipelineManager(QObject):
 
 
     def _should_skip_script(self, subject: Subject, script: ScriptInfo) -> bool:
-        """Check if a script should be skipped (already completed)"""
-        preprocessed_dir = subject.path / "PreprocessedData"
+        """Check if a script should be skipped (its expected outputs already exist).
 
-        # Check for 001a: DICOM to NIfTI - skip if NIfTI files already exist
+        Covers every step in the pipeline so resume-from-anywhere works:
+        if a subject's PreprocessedData/ already has the outputs of script N,
+        scripts ≤ N are skipped and execution starts at N+1.
+        """
+        # Explicit user choice always wins — if the user picked "start from
+        # step X", everything prior is forcibly marked as skip.
+        force_skip = getattr(subject, "force_skip", set())
+        if script.name in force_skip:
+            self.logger.info(f"✓ {script.name} skipped per user 'Start from step' choice")
+            return True
+
+        pre = subject.path / "PreprocessedData"
+        sid = subject.subject_id
+
         if script.name == "001a_dcm2niix":
-            # Look for existing NIfTI files
-            nifti_patterns = [
-                f"{subject.subject_id}_task-rest_run-*.nii.gz",
-                f"{subject.subject_id}_task-rest_run-*.nii",
-                f"{subject.subject_id}_T1w.nii.gz",
-                f"{subject.subject_id}_T1w.nii",
-                "*.nii.gz",
-                "*.nii"
-            ]
-            for pattern in nifti_patterns:
-                matches = list(preprocessed_dir.glob(pattern))
-                if matches:
-                    self.logger.info(f"✓ NIfTI files already exist, skipping DICOM conversion")
-                    self.logger.info(f"  Found: {[f.name for f in matches[:3]]}")
+            for pat in (f"{sid}_task-rest_run-*.nii*", f"{sid}_T1w.nii*",
+                        "func_run*+orig.nii*", "struct*+orig.nii*",
+                        "*.nii.gz", "*.nii"):
+                m = list(pre.glob(pat))
+                if m:
+                    self.logger.info(f"✓ NIfTI already exists, skipping DICOM conversion ({m[0].name})")
                     return True
 
-        # Check for 001c: Rename files - skip if files already properly named
         elif script.name == "001c_rename_files":
-            expected_files = [
-                preprocessed_dir / f"{subject.subject_id}_T1w.nii.gz",
-                preprocessed_dir / f"{subject.subject_id}_T1w.nii",
-                preprocessed_dir / f"{subject.subject_id}_task-rest_run-01_bold.nii.gz",
-                preprocessed_dir / f"{subject.subject_id}_task-rest_run-01_bold.nii"
-            ]
-            if any(f.exists() for f in expected_files):
-                self.logger.info(f"✓ Files already properly named, skipping rename")
+            if (any(pre.glob(f"{sid}_T1w.nii*")) or any(pre.glob("struct+orig.nii*"))
+                    or any(pre.glob(f"{sid}_task-rest_run-*_bold.nii*"))
+                    or any(pre.glob("func_run*+orig.nii*"))):
+                self.logger.info("✓ Files already standardized, skipping rename")
                 return True
 
-        # Check for 002: Defacing - skip if defaced files exist
         elif script.name == "002_batch_defaceMRI":
-            defaced_patterns = ["*_df.nii.gz", "*_df.nii", "*_df+orig.nii.gz"]
-            for pattern in defaced_patterns:
-                if list(preprocessed_dir.glob(pattern)):
-                    self.logger.info(f"✓ Defaced files already exist, skipping defacing")
+            for pat in ("*_df+orig.nii*", "*_df.nii*", "struct_rf.nii*",
+                        "struct_rf+orig.nii*"):
+                m = list(pre.glob(pat))
+                if m:
+                    self.logger.info(f"✓ Defaced/refaced output exists, skipping defacing ({m[0].name})")
                     return True
 
-        # Check for 003: FreeSurfer - skip if FreeSurfer output exists
         elif script.name == "003_FreeSurfer_recon":
-            fs_dir = subject.path / "FreeSurfer" / subject.subject_id
-            if fs_dir.exists() and (fs_dir / "mri" / "brainmask.mgz").exists():
-                self.logger.info(f"✓ FreeSurfer reconstruction already complete, skipping")
+            # recon-all places its <subj>/ output inside SUBJECTS_DIR, which
+            # the script sets to PreprocessedData/.
+            brainmask = pre / sid / "mri" / "brainmask.mgz"
+            if brainmask.exists():
+                self.logger.info("✓ FreeSurfer reconstruction already complete, skipping")
+                return True
+
+        elif script.name == "003b_FreeSurferQA_SUMA":
+            suma_dir = pre / sid / f"SUMA"
+            alt_suma = pre / f"SUMA_{sid}"
+            if (suma_dir.exists() and any(suma_dir.glob("*.gii"))) or \
+               (alt_suma.exists() and any(alt_suma.glob("*.gii"))):
+                self.logger.info("✓ SUMA surfaces already exist, skipping 003b")
+                return True
+
+        elif script.name == "004_createAP_struct_rf":
+            proc_script = pre / f"proc.{sid}"
+            if proc_script.exists():
+                self.logger.info(f"✓ proc.{sid} already generated, skipping 004")
+                return True
+
+        elif script.name == "004_execute_proc":
+            results_dir = pre / f"{sid}.results"
+            if results_dir.exists() and any(results_dir.glob("errts*")):
+                self.logger.info("✓ afni_proc.py results already exist, skipping 004_execute_proc")
+                return True
+
+        elif script.name == "005_afni2nifti":
+            results_dir = pre / f"{sid}.results"
+            if results_dir.exists() and any(results_dir.glob("*.nii*")):
+                # final NIfTI in results dir = step 005 already done
+                self.logger.info("✓ NIfTI results already present, skipping 005")
+                return True
+
+        elif script.name == "006_get_motion_files":
+            results_dir = pre / f"{sid}.results"
+            if results_dir.exists() and (
+                any(results_dir.glob("motion_*.1D")) or
+                any(results_dir.glob("dfile_rall.1D"))
+            ):
+                self.logger.info("✓ Motion files already extracted, skipping 006")
                 return True
 
         return False

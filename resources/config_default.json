@@ -4,6 +4,7 @@
   "stop_on_error": false,
   "skip_interactive": true,
   "archive_previous_run": true,
+  "start_from_step": "auto",
   "parallel_subjects": false,
   "num_parallel": 1,
   "keep_intermediate": true,

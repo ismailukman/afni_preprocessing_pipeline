@@ -54,6 +54,35 @@ class ConfigPanel(QWidget):
         self.stop_on_error_check.stateChanged.connect(self.on_config_changed)
         exec_layout.addWidget(self.stop_on_error_check)
 
+        # "Start from step" — force-skip steps before the chosen one when a
+        # rerun is launched. "Auto-resume" (default) leaves the existing
+        # output-detection logic alone.
+        start_from_row = QHBoxLayout()
+        start_from_row.addWidget(QLabel("Start pipeline from step:"))
+        self.start_from_combo = QComboBox()
+        self.start_from_combo.addItem("Auto-resume (skip steps with existing output)", "auto")
+        for i, (key, label) in enumerate([
+            ("001a_dcm2niix",          "1. DICOM → NIfTI"),
+            ("001c_rename_files",      "2. Rename Files"),
+            ("002_batch_defaceMRI",    "3. Deface / Reface"),
+            ("003_FreeSurfer_recon",   "4. FreeSurfer Reconstruction"),
+            ("003b_FreeSurferQA_SUMA", "5. SUMA Conversion"),
+            ("004_createAP_struct_rf", "6. Create afni_proc Script"),
+            ("004_execute_proc",       "7. Execute afni_proc"),
+            ("005_afni2nifti",         "8. AFNI → NIfTI"),
+            ("006_get_motion_files",   "9. Extract Motion Files"),
+        ], 1):
+            self.start_from_combo.addItem(label, key)
+        self.start_from_combo.setToolTip(
+            "Auto-resume: any step whose outputs already exist will be skipped.\n"
+            "Or pick a specific step — everything before it will be forced-skipped\n"
+            "and the pipeline will begin at the chosen step."
+        )
+        self.start_from_combo.currentIndexChanged.connect(self.on_config_changed)
+        start_from_row.addWidget(self.start_from_combo, 1)
+        start_wrap = QWidget(); start_wrap.setLayout(start_from_row)
+        exec_layout.addWidget(start_wrap)
+
         self.archive_run_check = QCheckBox(
             "Default to Restart when prompted (archive existing PreprocessedData)"
         )
@@ -346,6 +375,12 @@ class ConfigPanel(QWidget):
         self.stop_on_error_check.setChecked(self.config.get("stop_on_error", False))
         self.archive_run_check.setChecked(self.config.get("archive_previous_run", True))
 
+        # Start-from-step
+        start_key = self.config.get("start_from_step", "auto")
+        idx = self.start_from_combo.findData(start_key)
+        if idx >= 0:
+            self.start_from_combo.setCurrentIndex(idx)
+
         # Processing parameters (with sensible defaults)
         self.motion_thresh_spin.setValue(float(self.config.get("motion_threshold", 0.4)))
         self.outlier_thresh_spin.setValue(float(self.config.get("outlier_threshold", 0.1)))
@@ -378,6 +413,9 @@ class ConfigPanel(QWidget):
 
         # Archive previous PreprocessedData on rerun
         self.config.set("archive_previous_run", self.archive_run_check.isChecked())
+
+        # Start-from-step
+        self.config.set("start_from_step", self.start_from_combo.currentData())
 
         # Processing parameters
         self.config.set("motion_threshold",  self.motion_thresh_spin.value())

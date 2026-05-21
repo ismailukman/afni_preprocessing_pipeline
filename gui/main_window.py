@@ -368,6 +368,25 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Apply TR", msg)
         self.statusBar().showMessage(msg.splitlines()[0])
 
+    def _preload_subject_log(self, subject):
+        """Load a subject's existing preprocessing.log (if any) into its GUI tab.
+
+        Caps at last ~2000 lines so giant accumulated logs don't freeze the
+        text editor when rerunning a heavily-used subject.
+        """
+        log_path = subject.path / "PreprocessedData" / "preprocessing.log"
+        if not log_path.is_file():
+            return
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        lines = content.splitlines()
+        if len(lines) > 2000:
+            lines = ["… (older history truncated — see preprocessing.log for full content) …"] + lines[-2000:]
+        for line in lines:
+            self.log_viewer.append_log(subject.subject_id, line, "INFO")
+
     def on_redetect_clicked(self):
         """Re-run scan-parameter detection for the currently-selected subjects."""
         if not self.pipeline_manager:
@@ -480,6 +499,11 @@ class MainWindow(QMainWindow):
         self.subject_selector.mark_applied(subjects)
         self.subject_selector.set_pipeline_running(True)
 
+        # Preload prior preprocessing.log content (if any) into each subject's
+        # tab so the user sees full history when resuming.
+        for subject in subjects:
+            self._preload_subject_log(subject)
+
         # Start pipeline
         self.pipeline_manager.start_pipeline()
 
@@ -584,9 +608,10 @@ class MainWindow(QMainWindow):
         added = self.pipeline_manager.add_subjects(new_subjects)
         if not added:
             return
-        # New log tab for each added subject (script_list is shared across subjects)
+        # New log tab + preload any prior preprocessing.log for each addition
         for subject in added:
             self.log_viewer.add_subject_tab(subject.subject_id)
+            self._preload_subject_log(subject)
         self.subject_selector.mark_applied(added)
         # Refresh progress total now that more steps are queued
         current, total = self.pipeline_manager.get_progress()
