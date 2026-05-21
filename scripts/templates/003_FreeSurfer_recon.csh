@@ -48,8 +48,27 @@ if (-f "${fpath}/${subj_id}/mri/brainmask.mgz") then
     exit 0
 endif
 
+# Auto-detect logical cores so the OpenMP stages of recon-all (mri_ca_register,
+# mri_em_register, talairach, etc.) use threads.  Leave 1 core for the system.
+# -parallel handles left/right hemisphere stages; -openmp handles compute-heavy
+# single-stage routines.  Together they typically take recon-all from 4-8 hrs
+# to 1-3 hrs on a modern multicore machine.
+set ncpu = 4
+if (`uname` == "Darwin") then
+    set ncpu = `sysctl -n hw.ncpu`
+else
+    which nproc >& /dev/null
+    if ($status == 0) set ncpu = `nproc`
+endif
+@ nthreads = $ncpu - 1
+if ($nthreads < 2) set nthreads = 2
+echo "  Using -openmp ${nthreads} (detected ${ncpu} logical cores)"
+
+setenv OMP_NUM_THREADS $nthreads
+setenv FS_OMP_NUM_THREADS $nthreads     # FreeSurfer-specific env var
+
 # Run recon-all
-recon-all -all -s "${subj_id}" -i "$struct_file" -parallel
+recon-all -all -s "${subj_id}" -i "$struct_file" -parallel -openmp $nthreads
 
 if ($status != 0) then
     echo "ERROR: recon-all failed for ${subj_id}"
