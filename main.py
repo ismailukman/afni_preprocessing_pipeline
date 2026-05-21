@@ -77,7 +77,7 @@ def main():
         p.setFont(QFont("Helvetica Neue", 11))
         p.drawText(QRect(0, splash_pixmap.height() + 46, canvas.width(), 24),
                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                   "by the Adaptive Brain Networks Neuroimaging Lab  (ABN² Lab)")
+                   "The Adaptive Brain Networks Neuroimaging Lab  (ABN² Lab)")
         # Loading line
         p.setPen(QColor("#4CAF50"))
         p.setFont(QFont("Helvetica Neue", 10))
