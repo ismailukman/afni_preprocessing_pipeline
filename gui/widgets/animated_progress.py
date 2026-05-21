@@ -173,6 +173,16 @@ class StepIndicator(QWidget):
         self._glow = 0.0
         self.update()
 
+    def freeze(self):
+        """Stop the pulsing glow on the active step without changing state.
+
+        Used when the pipeline is stopped/finished: the circle keeps its
+        current/done/error colour but the halo no longer pulses.
+        """
+        self._anim.stop()
+        self._glow = 0.0
+        self.update()
+
     # ── Animated property ─────────────────────────────────────────────────
     def _get_glow(self):
         return self._glow

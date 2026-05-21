@@ -105,6 +105,9 @@ class ProgressPanel(QWidget):
 
     def on_stop_clicked(self):
         """Handle stop button click"""
+        # Immediately halt the active-step glow so the user gets visual
+        # feedback even before the pipeline manager finishes winding down.
+        self.step_indicator.freeze()
         self.stop_clicked.emit()
         self.set_running(False)
 
@@ -197,6 +200,7 @@ class ProgressPanel(QWidget):
     def set_completed(self, success: bool):
         """Set completion state"""
         self.set_running(False)
+        self.step_indicator.freeze()
         if success:
             self.status_label.setText("✅ Pipeline completed successfully!")
             self.status_label.setStyleSheet("font-weight: bold; font-size: 12pt; color: #4CAF50;")
