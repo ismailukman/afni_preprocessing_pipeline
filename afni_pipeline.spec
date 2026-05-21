@@ -1,11 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for AFNI Preprocessing Pipeline Manager v2.0.3"""
+"""PyInstaller spec for AFNI Preprocessing Pipeline Manager."""
 import sys
 from pathlib import Path
 
 block_cipher = None
 ROOT = Path(SPECPATH)
 GUI_APP = ROOT
+ICONS = GUI_APP / "resources" / "icons"
+
+
+def _icon_for(*candidates):
+    """Return the first existing icon path, or None if none ship in the repo."""
+    for name in candidates:
+        p = ICONS / name
+        if p.exists():
+            return str(p)
+    return None
+
+
+MAC_ICON = _icon_for("afni_guiapp.icns", "afni_guiapp.png")
+WIN_ICON = _icon_for("afni_guiapp.ico", "afni_guiapp.png")
 
 a = Analysis(
     [str(GUI_APP / "main.py")],
@@ -44,7 +58,7 @@ if sys.platform == "darwin":
         strip=False,
         upx=False,
         console=False,
-        icon=str(GUI_APP / "resources" / "icons" / "afni_guiapp.icns"),
+        icon=MAC_ICON,
     )
     coll = COLLECT(
         exe, a.binaries, a.zipfiles, a.datas,
@@ -55,7 +69,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="AFNI Pipeline Manager.app",
-        icon=str(GUI_APP / "resources" / "icons" / "afni_guiapp.icns"),
+        icon=MAC_ICON,
         bundle_identifier="com.afnipipeline.manager",
         info_plist={
             "CFBundleDisplayName": "AFNI Pipeline Manager",
@@ -76,7 +90,7 @@ elif sys.platform == "win32":
         strip=False,
         upx=False,
         console=False,
-        icon=str(GUI_APP / "resources" / "icons" / "afni_guiapp.ico"),
+        icon=WIN_ICON,
     )
     coll = COLLECT(
         exe, a.binaries, a.zipfiles, a.datas,

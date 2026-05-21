@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   # ── macOS build ──
   build-macos:
@@ -27,7 +24,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pyinstaller
-          pip install -r gui_app/requirements.txt
+          pip install -r requirements.txt
 
       - name: Build .app with PyInstaller
         run: pyinstaller afni_pipeline.spec --noconfirm
@@ -63,7 +60,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pyinstaller
-          pip install -r gui_app/requirements.txt
+          pip install -r requirements.txt
 
       - name: Build .exe with PyInstaller
         run: pyinstaller afni_pipeline.spec --noconfirm
@@ -99,7 +96,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pyinstaller
-          pip install -r gui_app/requirements.txt
+          pip install -r requirements.txt
 
       - name: Build with PyInstaller
         run: pyinstaller afni_pipeline.spec --noconfirm
