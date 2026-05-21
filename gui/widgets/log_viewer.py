@@ -207,19 +207,43 @@ class LogViewer(QWidget):
         legend_wrap.setLayout(legend_row)
         group_layout.addWidget(legend_wrap)
 
-        # Search bar — live filter (highlights matches as you type)
+        # Search bar — live filter + prev/next/clear icon buttons
         search_layout = QHBoxLayout()
         search_layout.addWidget(QLabel("Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Type to search (live)")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_text_changed)
-        self.search_input.returnPressed.connect(self.search_logs)
+        self.search_input.returnPressed.connect(self.search_next)
         search_layout.addWidget(self.search_input)
 
-        search_btn = QPushButton("Find Next")
-        search_btn.clicked.connect(self.search_logs)
-        search_layout.addWidget(search_btn)
+        icon_btn_css = (
+            "QPushButton { font-size: 13pt; font-weight: bold; "
+            "padding: 4px 10px; min-width: 32px; }"
+        )
+
+        self.search_prev_btn = QPushButton("▲")
+        self.search_prev_btn.setToolTip("Find previous match")
+        self.search_prev_btn.setStyleSheet(icon_btn_css)
+        self.search_prev_btn.clicked.connect(self.search_prev)
+        search_layout.addWidget(self.search_prev_btn)
+
+        self.search_next_btn = QPushButton("▼")
+        self.search_next_btn.setToolTip("Find next match (Enter)")
+        self.search_next_btn.setStyleSheet(icon_btn_css)
+        self.search_next_btn.clicked.connect(self.search_next)
+        search_layout.addWidget(self.search_next_btn)
+
+        self.search_cancel_btn = QPushButton("✕")
+        self.search_cancel_btn.setToolTip("Clear search and remove highlights (Esc)")
+        self.search_cancel_btn.setStyleSheet(icon_btn_css)
+        self.search_cancel_btn.clicked.connect(self.search_cancel)
+        search_layout.addWidget(self.search_cancel_btn)
+
+        # Esc shortcut on the input clears the search
+        from PyQt6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self.search_input,
+                  activated=self.search_cancel)
 
         group_layout.addLayout(search_layout)
 
@@ -265,17 +289,49 @@ class LogViewer(QWidget):
             del self.log_tabs[subject_id]
 
     def search_logs(self):
-        """Find next match of the search text in the active tab."""
+        """Legacy alias: find next match. Kept for backwards-compat."""
+        self.search_next()
+
+    def search_next(self):
+        """Jump to the next occurrence of the search text in the active tab."""
+        current_tab = self.tab_widget.currentWidget()
+        if not isinstance(current_tab, LogTab):
+            return
+        text = self.search_input.text()
+        if not text:
+            return
+        editor = current_tab.text_edit
+        if not editor.find(text):
+            # wrap to top
+            cur = editor.textCursor()
+            cur.movePosition(QTextCursor.MoveOperation.Start)
+            editor.setTextCursor(cur)
+            editor.find(text)
+
+    def search_prev(self):
+        """Jump to the previous occurrence of the search text."""
+        from PyQt6.QtGui import QTextDocument
+        current_tab = self.tab_widget.currentWidget()
+        if not isinstance(current_tab, LogTab):
+            return
+        text = self.search_input.text()
+        if not text:
+            return
+        editor = current_tab.text_edit
+        flags = QTextDocument.FindFlag.FindBackward
+        if not editor.find(text, flags):
+            # wrap to bottom
+            cur = editor.textCursor()
+            cur.movePosition(QTextCursor.MoveOperation.End)
+            editor.setTextCursor(cur)
+            editor.find(text, flags)
+
+    def search_cancel(self):
+        """Clear the search input and remove all highlights."""
+        self.search_input.clear()
         current_tab = self.tab_widget.currentWidget()
         if isinstance(current_tab, LogTab):
-            search_text = self.search_input.text()
-            if search_text:
-                # If find() returns False (no more matches forward), wrap to top
-                if not current_tab.text_edit.find(search_text):
-                    cur = current_tab.text_edit.textCursor()
-                    cur.movePosition(QTextCursor.MoveOperation.Start)
-                    current_tab.text_edit.setTextCursor(cur)
-                    current_tab.text_edit.find(search_text)
+            current_tab.text_edit.setExtraSelections([])
 
     def _on_search_text_changed(self, text: str):
         """Highlight every match of *text* in the active tab as the user types."""

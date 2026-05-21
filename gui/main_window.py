@@ -11,6 +11,7 @@ from gui.widgets.script_list import ScriptList
 from gui.widgets.log_viewer import LogViewer
 from gui.widgets.progress_panel import ProgressPanel
 from gui.widgets.config_panel import ConfigPanel
+from gui.widgets.env_status import EnvironmentStatus
 
 from core.config_manager import ConfigManager
 from core.logger import PipelineLogger, install_stdout_stderr_capture
@@ -41,7 +42,11 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle("AFNI Preprocessing Pipeline")
+        try:
+            from version import __version__
+        except ImportError:
+            __version__ = "dev"
+        self.setWindowTitle(f"AFNI Pipeline Manager  ·  v{__version__}")
         self.setMinimumSize(1200, 800)
 
         # Set window icon
@@ -91,12 +96,21 @@ class MainWindow(QMainWindow):
         )
         left_layout.addWidget(title_label)
 
-        # Subjects / Configuration as side-by-side tabs
+        # Subjects / Configuration as side-by-side tabs.  The Subjects tab
+        # combines the SubjectSelector with an EnvironmentStatus panel below.
         self.subject_selector = SubjectSelector()
+        self.env_status = EnvironmentStatus(self.config)
+
+        subjects_tab = QWidget()
+        subjects_vlayout = QVBoxLayout(subjects_tab)
+        subjects_vlayout.setContentsMargins(0, 0, 0, 0)
+        subjects_vlayout.addWidget(self.subject_selector, 1)
+        subjects_vlayout.addWidget(self.env_status, 0)
+
         self.config_panel = ConfigPanel(self.config)
 
         self.left_tabs = QTabWidget()
-        self.left_tabs.addTab(self.subject_selector, "Subjects")
+        self.left_tabs.addTab(subjects_tab, "Subjects")
         self.left_tabs.addTab(self.config_panel, "Configuration")
         left_layout.addWidget(self.left_tabs, 1)
 
@@ -382,6 +396,9 @@ class MainWindow(QMainWindow):
             self.pipeline_manager.config = self.config
         # Reflect new enabled-script set in the step indicator immediately
         self._refresh_step_indicator()
+        # Re-check environment (FreeSurfer path may have changed)
+        if hasattr(self, "env_status"):
+            self.env_status.refresh()
 
     def on_log_message(self, message: str, level: str):
         """Route global pipeline-logger messages into the Log viewer Pipeline tab."""

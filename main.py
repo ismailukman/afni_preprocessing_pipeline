@@ -62,12 +62,16 @@ def main():
         canvas.fill(QColor("#1a1a2e"))
         p = QPainter(canvas)
         p.drawPixmap(0, 0, splash_pixmap)
-        # Title
+        # Title + version
+        try:
+            from version import __version__
+        except ImportError:
+            __version__ = "dev"
         p.setPen(QColor("#64b5f6"))
         p.setFont(QFont("Helvetica Neue", 22, QFont.Weight.Bold))
         p.drawText(QRect(0, splash_pixmap.height() + 8, canvas.width(), 34),
                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                   "AFNI Pipeline Manager")
+                   f"AFNI Pipeline Manager  ·  v{__version__}")
         # Author / lab
         p.setPen(QColor("#cfd8dc"))
         p.setFont(QFont("Helvetica Neue", 11))
