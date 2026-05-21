@@ -64,15 +64,18 @@ class MainWindow(QMainWindow):
         left_panel_content = QWidget()
         left_layout = QVBoxLayout(left_panel_content)
 
-        # Logo (above tabs)
-        logo_path = Path(__file__).parent.parent / "resources" / "icons" / "afni_guiapp.png"
+        # Logo (above tabs) — prefer the hero artwork; fall back to the app icon
+        repo_root = Path(__file__).parent.parent
+        hero_path = repo_root / "docs" / "images" / "afni_guiapp_hero.png"
+        icon_path = repo_root / "resources" / "icons" / "afni_guiapp.png"
+        logo_path = hero_path if hero_path.exists() else icon_path
         if logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
             scaled_pixmap = pixmap.scaledToWidth(260, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            logo_label.setStyleSheet("background-color: white; padding: 8px; border-radius: 8px; margin: 4px;")
+            logo_label.setStyleSheet("background-color: transparent; padding: 8px; margin: 4px;")
             left_layout.addWidget(logo_label)
 
         # Subjects / Configuration as side-by-side tabs
