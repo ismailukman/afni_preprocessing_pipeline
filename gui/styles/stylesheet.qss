@@ -138,7 +138,7 @@ QTextEdit {
     border: 1px solid #2d2d5e;
     border-radius: 6px;
     padding: 6px;
-    font-family: "SF Mono", "Menlo", "Courier New", monospace;
+    font-family: "Menlo", "Courier New";
     font-size: 10pt;
     selection-background-color: #1a5276;
 }
@@ -149,7 +149,7 @@ QPlainTextEdit {
     border: 1px solid #2d2d5e;
     border-radius: 6px;
     padding: 6px;
-    font-family: "SF Mono", "Menlo", "Courier New", monospace;
+    font-family: "Menlo", "Courier New";
     font-size: 10pt;
 }
 

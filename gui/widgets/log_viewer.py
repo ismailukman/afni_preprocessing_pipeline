@@ -152,10 +152,20 @@ class LogTab(QWidget):
 class LogViewer(QWidget):
     """Widget for viewing logs with tabs for each subject"""
 
+    PIPELINE_TAB = "Pipeline"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.log_tabs = {}
         self.init_ui()
+        # Always-present "Pipeline" tab for global / pre-subject messages
+        self._ensure_pipeline_tab()
+
+    def _ensure_pipeline_tab(self):
+        if self.PIPELINE_TAB not in self.log_tabs:
+            tab = LogTab(self.PIPELINE_TAB)
+            self.log_tabs[self.PIPELINE_TAB] = tab
+            self.tab_widget.addTab(tab, "Pipeline")
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -210,6 +220,11 @@ class LogViewer(QWidget):
         """Clear all logs"""
         for log_tab in self.log_tabs.values():
             log_tab.clear_log()
+
+    def append_pipeline_log(self, line: str, level: str = "INFO"):
+        """Append a global/pipeline-level message to the Pipeline tab."""
+        self._ensure_pipeline_tab()
+        self.log_tabs[self.PIPELINE_TAB].append_line(line, level)
 
     def remove_subject_tab(self, subject_id: str):
         """Remove a subject's tab"""

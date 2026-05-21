@@ -294,9 +294,8 @@ class MainWindow(QMainWindow):
         self._refresh_step_indicator()
 
     def on_log_message(self, message: str, level: str):
-        """Handle log message"""
-        # This is the global log - we can add a separate tab for it
-        pass
+        """Route global pipeline-logger messages into the Log viewer Pipeline tab."""
+        self.log_viewer.append_pipeline_log(message, level)
 
     def start_pipeline(self):
         """Start the pipeline"""

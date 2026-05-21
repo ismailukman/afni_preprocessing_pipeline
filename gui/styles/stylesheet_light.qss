@@ -128,7 +128,7 @@ QTextEdit {
     border-radius: 4px;
     padding: 6px;
     color: #1B5E20;
-    font-family: "Courier New", "Menlo", monospace;
+    font-family: "Courier New", "Menlo";
     font-size: 10pt;
 }
 
@@ -138,7 +138,7 @@ QPlainTextEdit {
     border-radius: 4px;
     padding: 6px;
     color: #1B5E20;
-    font-family: "Courier New", "Menlo", monospace;
+    font-family: "Courier New", "Menlo";
     font-size: 10pt;
 }
 
