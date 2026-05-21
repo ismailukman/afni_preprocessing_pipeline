@@ -106,8 +106,9 @@ class LogTab(QWidget):
         elif "====" in line or "----" in line:
             fmt.setForeground(QColor("#64b5f6"))           # Blue header
             fmt.setFontWeight(QFont.Weight.Bold)
-        else:
-            fmt.setForeground(QColor("#c8e6c9"))           # Default: readable on dark bg
+        # else: do not set a foreground — fall through to the QSS-defined
+        # QTextEdit color so dark mode uses the matrix-green and light mode
+        # uses the dark green from each stylesheet.
 
         cursor.setCharFormat(fmt)
         cursor.insertText(line + "\n")

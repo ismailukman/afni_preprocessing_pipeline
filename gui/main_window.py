@@ -60,31 +60,29 @@ class MainWindow(QMainWindow):
         left_panel_scroll_area = QScrollArea()
         left_panel_scroll_area.setWidgetResizable(True)
         left_panel_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
+
         left_panel_content = QWidget()
         left_layout = QVBoxLayout(left_panel_content)
-        
-        # Add logo
+
+        # Logo (above tabs)
         logo_path = Path(__file__).parent.parent / "resources" / "icons" / "afni_guiapp.png"
         if logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
-            scaled_pixmap = pixmap.scaledToWidth(300, Qt.TransformationMode.SmoothTransformation)
+            scaled_pixmap = pixmap.scaledToWidth(260, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            logo_label.setStyleSheet("background-color: white; padding: 10px; border-radius: 8px; margin: 5px;")
+            logo_label.setStyleSheet("background-color: white; padding: 8px; border-radius: 8px; margin: 4px;")
             left_layout.addWidget(logo_label)
 
-        # Subject selector
+        # Subjects / Configuration as side-by-side tabs
         self.subject_selector = SubjectSelector()
-        left_layout.addWidget(self.subject_selector)
-
-        # Configuration tabs
-        config_tabs = QTabWidget()
         self.config_panel = ConfigPanel(self.config)
-        config_tabs.addTab(self.config_panel, "Configuration")
-        left_layout.addWidget(config_tabs)
-        left_layout.addStretch() # Pushes content to the top
+
+        self.left_tabs = QTabWidget()
+        self.left_tabs.addTab(self.subject_selector, "Subjects")
+        self.left_tabs.addTab(self.config_panel, "Configuration")
+        left_layout.addWidget(self.left_tabs, 1)
 
         left_panel_scroll_area.setWidget(left_panel_content)
         splitter.addWidget(left_panel_scroll_area)
@@ -182,6 +180,21 @@ class MainWindow(QMainWindow):
                     right_layout.insertWidget(i + 1, self.script_list)
                     break
 
+        # Populate step indicator with currently enabled scripts
+        self._refresh_step_indicator()
+
+    def _refresh_step_indicator(self):
+        """Push the currently-enabled pipeline scripts into the step indicator.
+
+        Each step is rendered as a numbered circle (1..N) so the label is just
+        the position; the script's full name is used as the match key.
+        """
+        if not self.pipeline_manager:
+            return
+        enabled = self.pipeline_manager.get_enabled_scripts()
+        steps = [{"label": str(i + 1), "key": s.name} for i, s in enumerate(enabled)]
+        self.progress_panel.set_steps(steps)
+
     def setup_connections(self):
         """Setup signal/slot connections"""
         # Subject selector
@@ -210,6 +223,8 @@ class MainWindow(QMainWindow):
         if self.pipeline_manager:
             # Reload config in pipeline manager
             self.pipeline_manager.config = self.config
+        # Reflect new enabled-script set in the step indicator immediately
+        self._refresh_step_indicator()
 
     def on_log_message(self, message: str, level: str):
         """Handle log message"""

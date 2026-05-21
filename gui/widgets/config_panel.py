@@ -261,13 +261,8 @@ class ConfigPanel(QWidget):
             enabled_scripts[script_key] = check.isChecked()
         self.config.set("enabled_scripts", enabled_scripts)
 
-        # Save to file
+        # Save to file (silent — caller can show feedback if needed)
         self.config.save_config()
-
-        # Show confirmation (optional)
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Configuration Saved",
-                               "Configuration has been saved successfully.")
 
     def reset_config(self):
         """Reset to default configuration"""

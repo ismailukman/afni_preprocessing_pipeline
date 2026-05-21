@@ -77,23 +77,32 @@ class AnimatedProgressBar(QProgressBar):
 
 # ── Horizontal Step Indicator ──────────────────────────────────────────────
 class StepIndicator(QWidget):
-    """Horizontal row of step pills.  The current step pulses with a glow."""
+    """Horizontal row of small numbered circles.
 
-    PILL_H = 30
-    PILL_GAP = 8
+    Each step is rendered as a circle showing its **number** (1, 2, 3, …).
+    The currently-active step pulses with a soft glow halo; done steps are
+    green, errored steps red, pending steps dim.
+
+    ``set_steps`` accepts a list of dicts ``{"label": "1", "key": "001a_..."}``
+    so the *display label* (a number) is decoupled from the *match key* used
+    by ``set_current_by_name`` / ``mark_done_by_name``.
+    """
+
+    CIRCLE_D = 28      # circle diameter in px
+    CIRCLE_GAP = 10    # spacing between circles
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._steps = []          # list of (label, full_name)
+        self._steps = []          # list of dicts: {"label", "key"}
         self._current_index = -1
         self._done = set()
         self._error = set()
-        self._glow = 0.0          # 0..1, animated for the active pill
+        self._glow = 0.0          # 0..1, animated for the active circle
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(self.PILL_H + 8)
+        # Extra room above/below for the glow halo
+        self.setMinimumHeight(self.CIRCLE_D + 16)
 
-        # Glow pulse animation
         self._anim = QPropertyAnimation(self, b"glow", self)
         self._anim.setDuration(1100)
         self._anim.setStartValue(0.15)
@@ -102,13 +111,31 @@ class StepIndicator(QWidget):
         self._anim.setLoopCount(-1)
 
     # ── Public API ─────────────────────────────────────────────────────────
-    def set_steps(self, labels):
-        """labels: list of short step labels, e.g. ['001a','001c','002',...]"""
-        self._steps = list(labels)
+    def set_steps(self, steps):
+        """Set the steps to display.
+
+        Accepts either:
+          - list of dicts: ``[{"label": "1", "key": "001a_dcm2niix"}, ...]``
+          - list of strings (each used as both label and key)
+        """
+        normalized = []
+        for s in steps:
+            if isinstance(s, dict):
+                normalized.append({"label": str(s.get("label", "?")),
+                                   "key":   str(s.get("key", s.get("label", "?")))})
+            else:
+                normalized.append({"label": str(s), "key": str(s)})
+        self._steps = normalized
         self._current_index = -1
         self._done.clear()
         self._error.clear()
         self.update()
+
+    def _match_index(self, name: str) -> int:
+        for i, s in enumerate(self._steps):
+            if s["key"] == name or name.startswith(s["key"]):
+                return i
+        return -1
 
     def set_current(self, index: int):
         if 0 <= index < len(self._steps):
@@ -121,26 +148,22 @@ class StepIndicator(QWidget):
         self.update()
 
     def set_current_by_name(self, name: str):
-        for i, lbl in enumerate(self._steps):
-            if lbl == name or name.startswith(lbl):
-                self.set_current(i)
-                return
+        idx = self._match_index(name)
+        if idx >= 0:
+            self.set_current(idx)
 
     def mark_done(self, index: int, success: bool = True):
         if 0 <= index < len(self._steps):
             if success:
-                self._done.add(index)
-                self._error.discard(index)
+                self._done.add(index); self._error.discard(index)
             else:
-                self._error.add(index)
-                self._done.discard(index)
+                self._error.add(index); self._done.discard(index)
             self.update()
 
     def mark_done_by_name(self, name: str, success: bool = True):
-        for i, lbl in enumerate(self._steps):
-            if lbl == name or name.startswith(lbl):
-                self.mark_done(i, success)
-                return
+        idx = self._match_index(name)
+        if idx >= 0:
+            self.mark_done(idx, success)
 
     def reset(self):
         self._current_index = -1
@@ -168,71 +191,63 @@ class StepIndicator(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         n = len(self._steps)
-        gap = self.PILL_GAP
-        avail = self.width() - gap * (n - 1)
-        pill_w = max(60, avail // n)
-        h = self.PILL_H
-        y = (self.height() - h) // 2
+        d = self.CIRCLE_D
+        gap = self.CIRCLE_GAP
+        total_w = n * d + (n - 1) * gap
+        # Center the row horizontally
+        x0 = max((self.width() - total_w) // 2, 0)
+        cy = self.height() // 2
 
+        # Big bold number font (scaled to circle diameter)
         font = QFont()
         font.setBold(True)
-        font.setPointSize(9)
+        font.setPointSize(13)
         p.setFont(font)
 
-        for i, label in enumerate(self._steps):
-            x = i * (pill_w + gap)
-            rect = QRectF(x, y, pill_w, h)
-            self._draw_pill(p, rect, i, label)
+        for i, step in enumerate(self._steps):
+            cx = x0 + i * (d + gap) + d // 2
 
-            # Connector line between pills
-            if i < n - 1:
-                cx1 = x + pill_w
-                cx2 = cx1 + gap
-                cy = y + h / 2
-                done = i in self._done
-                pen = QPen(QColor("#2e7d32") if done else QColor("#2d2d5e"), 2)
+            # Connector line to previous circle
+            if i > 0:
+                prev_done = (i - 1) in self._done
+                pen = QPen(QColor("#2e7d32") if prev_done else QColor("#2d2d5e"), 2)
                 p.setPen(pen)
-                p.drawLine(int(cx1), int(cy), int(cx2), int(cy))
+                p.drawLine(int(cx - d // 2 - gap), cy, int(cx - d // 2), cy)
+
+            self._draw_circle(p, cx, cy, d, i, step["label"])
 
         p.end()
 
-    def _draw_pill(self, p: QPainter, rect: QRectF, idx: int, label: str):
+    def _draw_circle(self, p: QPainter, cx: int, cy: int, d: int, idx: int, label: str):
         is_current = (idx == self._current_index)
         is_done = idx in self._done
         is_error = idx in self._error
 
         if is_error:
-            fill = QColor("#b71c1c")
-            border = QColor("#ef5350")
-            text_color = QColor("#ffffff")
+            fill, border, text_color = QColor("#b71c1c"), QColor("#ef5350"), QColor("#ffffff")
         elif is_done:
-            fill = QColor("#1b5e20")
-            border = QColor("#2e7d32")
-            text_color = QColor("#ffffff")
+            fill, border, text_color = QColor("#1b5e20"), QColor("#2e7d32"), QColor("#ffffff")
         elif is_current:
-            fill = QColor("#0f3460")
-            border = QColor("#64b5f6")
-            text_color = QColor("#ffffff")
+            fill, border, text_color = QColor("#0f3460"), QColor("#64b5f6"), QColor("#ffffff")
         else:
-            fill = QColor("#0d1b2a")
-            border = QColor("#2d2d5e")
-            text_color = QColor("#9aa5b8")
+            fill, border, text_color = QColor("#0d1b2a"), QColor("#2d2d5e"), QColor("#9aa5b8")
 
-        # Glow halo for active pill
+        # Pulsing glow halo for the active circle
         if is_current:
-            alpha = int(40 + self._glow * 150)
+            alpha = int(40 + self._glow * 160)
             halo = QColor(33, 150, 243, alpha)  # #2196F3 with pulse alpha
+            grow = int(4 + self._glow * 6)
+            halo_d = d + grow * 2
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(halo)
-            grow = 4 + self._glow * 4
-            halo_rect = rect.adjusted(-grow, -grow, grow, grow)
-            p.drawRoundedRect(halo_rect, halo_rect.height() / 2, halo_rect.height() / 2)
+            p.drawEllipse(QRectF(cx - halo_d / 2, cy - halo_d / 2, halo_d, halo_d))
 
-        # Pill body
+        # Circle body
         p.setPen(QPen(border, 2))
         p.setBrush(fill)
-        p.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        p.drawEllipse(QRectF(cx - d / 2, cy - d / 2, d, d))
 
-        # Label
+        # Number / label
         p.setPen(text_color)
-        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+        p.drawText(QRectF(cx - d / 2, cy - d / 2, d, d),
+                   Qt.AlignmentFlag.AlignCenter, label)
