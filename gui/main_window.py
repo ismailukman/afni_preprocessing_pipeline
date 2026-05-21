@@ -342,10 +342,8 @@ class MainWindow(QMainWindow):
         # Reset detected parameters
         self.config_panel.reset_detected_parameters()
 
-        # Populate step indicator with enabled scripts
-        enabled_scripts = self.pipeline_manager.get_enabled_scripts()
-        step_labels = [s.name.split("_")[0] for s in enabled_scripts]
-        self.progress_panel.set_steps(step_labels)
+        # Refresh step indicator with numbered circles (1..N) for enabled scripts
+        self._refresh_step_indicator()
 
         # Set up pipeline manager
         self.pipeline_manager.set_subjects(subjects)
