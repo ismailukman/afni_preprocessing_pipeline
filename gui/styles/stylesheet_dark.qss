@@ -3,7 +3,7 @@
 /* ── Global override (prevents macOS dark-mode from injecting white text) ── */
 * {
     color: #e0e0e0;
-    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-family: "Helvetica Neue", Arial;
 }
 
 QWidget {
