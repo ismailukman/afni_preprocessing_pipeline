@@ -310,9 +310,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Validate FreeSurfer path
+        # Validate FreeSurfer installation (home dir + recon-all binary + license)
         fs_home = self.config.get("freesurfer_home")
-        if not Path(fs_home).exists():
+        fs_root = Path(fs_home)
+        if not fs_root.exists():
             QMessageBox.warning(
                 self,
                 "Invalid FreeSurfer Path",
@@ -320,6 +321,24 @@ class MainWindow(QMainWindow):
                 "Please check the configuration."
             )
             return
+        recon_all = fs_root / "bin" / "recon-all"
+        if not recon_all.exists():
+            QMessageBox.warning(
+                self,
+                "FreeSurfer Incomplete",
+                f"recon-all not found at:\n{recon_all}\n\n"
+                "FreeSurfer appears to be missing or incompletely installed."
+            )
+            return
+        if not (fs_root / "license.txt").exists() and not (fs_root / ".license").exists():
+            QMessageBox.warning(
+                self,
+                "FreeSurfer License Missing",
+                f"No license.txt found in:\n{fs_home}\n\n"
+                "Get a free license at https://surfer.nmr.mgh.harvard.edu/registration.html "
+                "and place it in the FreeSurfer home directory before running step 003."
+            )
+            # Not a hard stop — user may have set FS_LICENSE elsewhere
 
         # Ask Continue / Restart for any subject with existing PreprocessedData
         if not self._resolve_archive_choices(subjects):

@@ -786,9 +786,14 @@ class PipelineManager(QObject):
             self._process_next_script(subject)
             return
 
-        # Re-detect parameters before creating the proc script (in case new files were created)
-        if script.name == "004_createAP_struct_rf":
-            self.logger.info("Re-checking scan parameters before creating processing script...")
+        # Re-detect scan parameters at every point where new NIfTI/AFNI files
+        # may have just appeared (so TR/TPs/runs in the GUI stop showing
+        # "Not yet detected" once the data actually exists).
+        if script.name in ("001c_rename_files",
+                           "002_batch_defaceMRI",
+                           "003_FreeSurfer_recon",
+                           "004_createAP_struct_rf"):
+            self.logger.info(f"Re-checking scan parameters before {script.name}...")
             self._detect_scan_parameters(subject)
 
         subject.status[script.name] = "running"
