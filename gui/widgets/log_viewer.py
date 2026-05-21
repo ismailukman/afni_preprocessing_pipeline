@@ -175,19 +175,49 @@ class LogViewer(QWidget):
         group = QGroupBox("Log Output")
         group_layout = QVBoxLayout()
 
-        # Tab widget
+        # Tab widget — make tabs scrollable when many subjects are loaded
         self.tab_widget = QTabWidget()
+        self.tab_widget.setUsesScrollButtons(True)
+        self.tab_widget.setElideMode(Qt.TextElideMode.ElideNone)
+        self.tab_widget.tabBar().setExpanding(False)
         group_layout.addWidget(self.tab_widget)
 
-        # Search bar
+        # Color legend strip (small squares + labels)
+        legend_row = QHBoxLayout()
+        legend_row.setContentsMargins(2, 0, 2, 0)
+        legend_row.setSpacing(12)
+        for label_text, color_hex in [
+            ("Success/Output", "#81C784"),
+            ("Error",          "#ef5350"),
+            ("Warning",        "#FFB74D"),
+            ("Section Header", "#64b5f6"),
+            ("Progress",       "#2196F3"),
+        ]:
+            chip = QLabel()
+            chip.setFixedSize(12, 12)
+            chip.setStyleSheet(
+                f"background-color:{color_hex}; border:1px solid #2d2d5e; border-radius:2px;"
+            )
+            txt = QLabel(label_text)
+            txt.setStyleSheet("font-size: 9pt;")
+            legend_row.addWidget(chip)
+            legend_row.addWidget(txt)
+        legend_row.addStretch()
+        legend_wrap = QWidget()
+        legend_wrap.setLayout(legend_row)
+        group_layout.addWidget(legend_wrap)
+
+        # Search bar — live filter (highlights matches as you type)
         search_layout = QHBoxLayout()
         search_layout.addWidget(QLabel("Search:"))
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Enter text to search...")
+        self.search_input.setPlaceholderText("Type to search (live)")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self._on_search_text_changed)
         self.search_input.returnPressed.connect(self.search_logs)
         search_layout.addWidget(self.search_input)
 
-        search_btn = QPushButton("Find")
+        search_btn = QPushButton("Find Next")
         search_btn.clicked.connect(self.search_logs)
         search_layout.addWidget(search_btn)
 
@@ -235,12 +265,45 @@ class LogViewer(QWidget):
             del self.log_tabs[subject_id]
 
     def search_logs(self):
-        """Search current log tab"""
+        """Find next match of the search text in the active tab."""
         current_tab = self.tab_widget.currentWidget()
         if isinstance(current_tab, LogTab):
             search_text = self.search_input.text()
             if search_text:
-                current_tab.text_edit.find(search_text)
+                # If find() returns False (no more matches forward), wrap to top
+                if not current_tab.text_edit.find(search_text):
+                    cur = current_tab.text_edit.textCursor()
+                    cur.movePosition(QTextCursor.MoveOperation.Start)
+                    current_tab.text_edit.setTextCursor(cur)
+                    current_tab.text_edit.find(search_text)
+
+    def _on_search_text_changed(self, text: str):
+        """Highlight every match of *text* in the active tab as the user types."""
+        current_tab = self.tab_widget.currentWidget()
+        if not isinstance(current_tab, LogTab):
+            return
+        editor = current_tab.text_edit
+        if not text:
+            editor.setExtraSelections([])
+            return
+
+        from PyQt6.QtWidgets import QTextEdit
+        highlight = QColor("#FFF59D")   # soft yellow
+        fmt = QTextCharFormat()
+        fmt.setBackground(highlight)
+        fmt.setForeground(QColor("#1A1A1A"))
+
+        selections = []
+        cursor = QTextCursor(editor.document())
+        while True:
+            cursor = editor.document().find(text, cursor)
+            if cursor.isNull():
+                break
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            selections.append(sel)
+        editor.setExtraSelections(selections)
 
     def get_current_subject_id(self):
         """Get currently visible subject ID"""

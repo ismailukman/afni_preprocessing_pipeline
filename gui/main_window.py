@@ -79,8 +79,17 @@ class MainWindow(QMainWindow):
             scaled_pixmap = pixmap.scaledToWidth(260, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            logo_label.setStyleSheet("background-color: transparent; padding: 8px; margin: 4px;")
+            logo_label.setStyleSheet("background-color: transparent; padding: 4px; margin: 2px;")
             left_layout.addWidget(logo_label)
+
+        # Bold app-title label under the logo (also mirrored on the splash screen)
+        title_label = QLabel("AFNI Pipeline Manager")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet(
+            "font-size: 14pt; font-weight: bold; color: #64b5f6; "
+            "padding: 2px; margin-bottom: 6px;"
+        )
+        left_layout.addWidget(title_label)
 
         # Subjects / Configuration as side-by-side tabs
         self.subject_selector = SubjectSelector()
@@ -162,11 +171,25 @@ class MainWindow(QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
-        about_action = QAction("&About", self)
+        about_action = QAction("&About AFNI Pipeline Manager…", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
 
-        user_manual_action = QAction("&User Manual", self)
+        author_action = QAction("&Author…", self)
+        author_action.triggered.connect(self.show_author)
+        help_menu.addAction(author_action)
+
+        ack_action = QAction("&Acknowledgements…", self)
+        ack_action.triggered.connect(self.show_acknowledgements)
+        help_menu.addAction(ack_action)
+
+        help_menu.addSeparator()
+
+        github_action = QAction("Open &GitHub Repository", self)
+        github_action.triggered.connect(self.open_github_repo)
+        help_menu.addAction(github_action)
+
+        user_manual_action = QAction("&User Manual…", self)
         user_manual_action.triggered.connect(self.show_user_manual)
         help_menu.addAction(user_manual_action)
 
@@ -281,6 +304,7 @@ class MainWindow(QMainWindow):
         # Configuration
         self.config_panel.config_changed.connect(self.on_config_changed)
         self.config_panel.redetect_clicked.connect(self.on_redetect_clicked)
+        self.config_panel.apply_tr_clicked.connect(self.on_apply_tr)
 
         # Logger signals
         self.logger.signals.log_message.connect(self.on_log_message)
@@ -288,6 +312,47 @@ class MainWindow(QMainWindow):
     def on_subjects_changed(self, subjects):
         """Handle subject selection change"""
         self.statusBar().showMessage(f"{len(subjects)} subject(s) selected")
+
+    def on_apply_tr(self, tr_value: float):
+        """Stamp the user-edited TR into every functional run via 3drefit -TR."""
+        import subprocess
+        if tr_value <= 0:
+            QMessageBox.warning(self, "Invalid TR",
+                                "Enter a positive TR value before applying.")
+            return
+        subjects = self.subject_selector.get_selected_subjects()
+        if not subjects:
+            QMessageBox.information(self, "Apply TR",
+                                    "Select at least one subject first.")
+            return
+        # Use shared patterns from the pipeline manager so this matches the
+        # naming used by detection.
+        patterns = ["func_run*+orig.nii.gz", "func_run*+orig.nii",
+                    "func_run*.nii.gz", "func_run*.nii",
+                    "*_task-*_bold.nii.gz", "*_task-*_bold.nii"]
+        seen, updated, failed = 0, 0, []
+        for s in subjects:
+            pre = s.path / "PreprocessedData"
+            if not pre.is_dir():
+                continue
+            funcs = []
+            for pat in patterns:
+                funcs.extend(sorted(pre.glob(pat)))
+            # Dedupe while preserving order
+            funcs = list(dict.fromkeys(funcs))
+            for f in funcs:
+                seen += 1
+                try:
+                    subprocess.run(["3drefit", "-TR", f"{tr_value}", str(f)],
+                                   check=True, capture_output=True, text=True)
+                    updated += 1
+                except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                    failed.append((str(f), str(e)))
+        msg = f"3drefit -TR {tr_value} applied to {updated}/{seen} functional file(s)."
+        if failed:
+            msg += f"\nFailed: {len(failed)}.  First error:\n{failed[0][1][:200]}"
+        QMessageBox.information(self, "Apply TR", msg)
+        self.statusBar().showMessage(msg.splitlines()[0])
 
     def on_redetect_clicked(self):
         """Re-run scan-parameter detection for the currently-selected subjects."""
@@ -556,29 +621,75 @@ class MainWindow(QMainWindow):
         else:
             self.pipeline_manager.stop_pipeline()
 
-    def on_parameters_detected(self, tr: float, timepoints: int, num_runs: int):
-        """Handle auto-detected parameters"""
-        self.config_panel.update_detected_parameters(tr=tr, timepoints=timepoints, num_runs=num_runs)
-        self.statusBar().showMessage(f"Detected: TR={tr:.2f}s, Timepoints={timepoints}, Runs={num_runs}")
+    def on_parameters_detected(self, tr: float, timepoints: int, num_runs: int, subject_id: str = ""):
+        """Handle auto-detected parameters (now includes which subject they came from)."""
+        self.config_panel.update_detected_parameters(
+            tr=tr, timepoints=timepoints, num_runs=num_runs,
+            subject_id=subject_id or None,
+        )
+        who = f" (from {subject_id})" if subject_id else ""
+        self.statusBar().showMessage(
+            f"Detected{who}: TR={tr:.3f}s, Timepoints={timepoints}, Runs={num_runs}"
+        )
 
     def show_about(self):
         """Show about dialog"""
         QMessageBox.about(
             self,
-            "About AFNI Preprocessing GUI",
-            "<h2>AFNI Preprocessing Pipeline</h2>"
-            "<p>Version 1.0</p>"
-            "<p>A graphical user interface for running AFNI preprocessing scripts.</p>"
-            "<p>This application automates the preprocessing workflow including:</p>"
+            "About AFNI Pipeline Manager",
+            "<h2>AFNI Pipeline Manager</h2>"
+            "<p><b>A PyQt6 GUI for the AFNI preprocessing pipeline.</b></p>"
+            "<p>This application automates the resting-state fMRI preprocessing workflow:</p>"
             "<ul>"
-            "<li>DICOM to NIfTI conversion</li>"
-            "<li>Subject defacing/refacing</li>"
-            "<li>FreeSurfer reconstruction</li>"
-            "<li>AFNI preprocessing</li>"
-            "<li>Data format conversion</li>"
+            "<li>DICOM / PAR-REC → NIfTI conversion</li>"
+            "<li>BIDS-style renaming</li>"
+            "<li>Subject defacing / refacing</li>"
+            "<li>FreeSurfer cortical reconstruction</li>"
+            "<li>SUMA format conversion + QA</li>"
+            "<li>afni_proc.py generation + execution</li>"
+            "<li>AFNI → NIfTI conversion + motion extraction</li>"
             "</ul>"
-            "<p><b>Author:</b> Lukman E Ismaila Ph.D</p>"
+            "<p style='color:#888'>Developed at the Adaptive Brain Networks Neuroimaging Lab "
+            "(<b>ABN² Lab</b>).</p>"
         )
+
+    def show_author(self):
+        """Show author dialog"""
+        QMessageBox.about(
+            self,
+            "Author",
+            "<h3>Author</h3>"
+            "<p><b>Lukman E. Ismaila, Ph.D.</b></p>"
+            "<p>Adaptive Brain Networks Neuroimaging Lab "
+            "(<b>ABN² Lab</b>)</p>"
+            "<p>📧 <a href='mailto:ismailukman@gmail.com'>ismailukman@gmail.com</a></p>"
+        )
+
+    def show_acknowledgements(self):
+        """Show acknowledgements dialog"""
+        QMessageBox.about(
+            self,
+            "Acknowledgements",
+            "<h3>Acknowledgements</h3>"
+            "<p>This GUI builds on the following open-source tools — many thanks to "
+            "their authors and communities:</p>"
+            "<ul>"
+            "<li><b>AFNI</b> — Robert W. Cox and the NIH/NIMH SSCC group</li>"
+            "<li><b>FreeSurfer</b> — Martinos Center, MGH / Harvard</li>"
+            "<li><b>dcm2niix</b> — Chris Rorden et al.</li>"
+            "<li><b>PyQt6</b> — Riverbank Computing</li>"
+            "</ul>"
+            "<p>Developed at the <b>Adaptive Brain Networks Neuroimaging Lab "
+            "(ABN² Lab)</b>.</p>"
+        )
+
+    def open_github_repo(self):
+        """Open the project's GitHub repository in the default browser."""
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl(
+            "https://github.com/ismailukman/afni_preprocessing_pipeline"
+        ))
 
     def show_user_manual(self):
         """Show user manual"""

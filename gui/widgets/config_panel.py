@@ -13,7 +13,8 @@ class ConfigPanel(QWidget):
     """Widget for configuring pipeline settings"""
 
     config_changed = pyqtSignal()
-    redetect_clicked = pyqtSignal()  # manual TR/TPs/runs re-detection request
+    redetect_clicked = pyqtSignal()    # manual TR/TPs/runs re-detection request
+    apply_tr_clicked = pyqtSignal(float)  # user-edited TR value to stamp on funcs
 
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
@@ -187,10 +188,42 @@ class ConfigPanel(QWidget):
         detected_group = QGroupBox("Auto-Detected Parameters")
         detected_layout = QFormLayout()
 
-        # TR (Repetition Time)
-        self.detected_tr_label = QLabel("Not yet detected")
-        self.detected_tr_label.setStyleSheet("color: #666; font-style: italic;")
-        detected_layout.addRow("TR (Repetition Time):", self.detected_tr_label)
+        # TR (Repetition Time) — editable spinbox + "applied from <subject>" label
+        tr_row = QHBoxLayout()
+        self.tr_spin = QDoubleSpinBox()
+        self.tr_spin.setRange(0.0, 60.0)
+        self.tr_spin.setDecimals(3)
+        self.tr_spin.setSingleStep(0.1)
+        self.tr_spin.setSuffix(" s")
+        self.tr_spin.setValue(0.0)
+        self.tr_spin.setToolTip(
+            "Repetition time. Auto-filled by detection, but you can override "
+            "it here.  Use the Apply TR button to write your value back into "
+            "every functional run via 3drefit."
+        )
+        self.apply_tr_btn = QPushButton("Apply TR")
+        self.apply_tr_btn.setToolTip(
+            "Stamp the TR shown here into every functional run "
+            "(<subject>/PreprocessedData/func_run*+orig.nii[.gz]) using "
+            "AFNI 3drefit -TR. Use this when the header TR is wrong or missing."
+        )
+        self.apply_tr_btn.setObjectName("applyTrBtn")
+        self.apply_tr_btn.clicked.connect(
+            lambda: self.apply_tr_clicked.emit(self.tr_spin.value())
+        )
+        tr_row.addWidget(self.tr_spin)
+        tr_row.addWidget(self.apply_tr_btn)
+        tr_wrap = QWidget(); tr_wrap.setLayout(tr_row)
+        detected_layout.addRow("TR (Repetition Time):", tr_wrap)
+
+        self.detected_tr_source_label = QLabel("Not yet detected")
+        self.detected_tr_source_label.setStyleSheet("color: #888; font-style: italic; font-size: 9pt;")
+        detected_layout.addRow("", self.detected_tr_source_label)
+
+        # Keep the old read-only label name aliased to the new spin so older
+        # callers (update_detected_parameters / reset_detected_parameters)
+        # continue to function via small adapters below.
+        self.detected_tr_label = self.detected_tr_source_label
 
         # Timepoints per run
         self.detected_timepoints_label = QLabel("Not yet detected")
@@ -398,24 +431,40 @@ class ConfigPanel(QWidget):
             "skip_interactive": self.skip_interactive_check.isChecked(),
         }
 
-    def update_detected_parameters(self, tr=None, timepoints=None, num_runs=None):
-        """Update the displayed detected parameters"""
+    def update_detected_parameters(self, tr=None, timepoints=None, num_runs=None,
+                                   subject_id: str = None):
+        """Update the displayed detected parameters.
+
+        ``subject_id`` (if provided) is shown beneath the TR row so users can
+        see which subject the values were measured on.
+        """
         if tr is not None:
-            self.detected_tr_label.setText(f"{tr:.2f} seconds")
-            self.detected_tr_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            self.tr_spin.setValue(float(tr))
+            src = f" — detected from {subject_id}" if subject_id else ""
+            self.detected_tr_source_label.setText(f"✓ {tr:.3f} s{src}")
+            self.detected_tr_source_label.setStyleSheet(
+                "color: #4CAF50; font-weight: bold; font-size: 9pt;"
+            )
 
         if timepoints is not None:
-            self.detected_timepoints_label.setText(f"{timepoints} volumes")
+            text = f"{timepoints} volumes"
+            if subject_id:
+                text += f" — detected from {subject_id}"
+            self.detected_timepoints_label.setText(text)
             self.detected_timepoints_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
 
         if num_runs is not None:
-            self.detected_runs_label.setText(f"{num_runs} run(s)")
+            text = f"{num_runs} run(s)"
+            if subject_id:
+                text += f" — detected from {subject_id}"
+            self.detected_runs_label.setText(text)
             self.detected_runs_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
 
     def reset_detected_parameters(self):
         """Reset detected parameters to 'not yet detected' state"""
-        self.detected_tr_label.setText("Not yet detected")
-        self.detected_tr_label.setStyleSheet("color: #666; font-style: italic;")
+        self.detected_tr_source_label.setText("Not yet detected")
+        self.detected_tr_source_label.setStyleSheet("color: #888; font-style: italic; font-size: 9pt;")
+        self.tr_spin.setValue(0.0)
 
         self.detected_timepoints_label.setText("Not yet detected")
         self.detected_timepoints_label.setStyleSheet("color: #666; font-style: italic;")

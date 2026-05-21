@@ -9,8 +9,8 @@ Author: Lukman E Ismaila Ph.D
 import sys
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QSplashScreen
-from PyQt6.QtGui import QPixmap, QGuiApplication
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPixmap, QGuiApplication, QPainter, QColor, QFont
+from PyQt6.QtCore import Qt, QTimer, QRect
 from gui.main_window import MainWindow
 
 STYLES_DIR = Path(__file__).parent / "gui" / "styles"
@@ -54,7 +54,35 @@ def main():
     if splash_pixmap_path.exists():
         splash_pixmap = QPixmap(str(splash_pixmap_path))
         splash_pixmap = splash_pixmap.scaledToWidth(600, Qt.TransformationMode.SmoothTransformation)
-        splash = QSplashScreen(splash_pixmap, Qt.WindowType.WindowStaysOnTopHint)
+
+        # Paint title / author / loading text *under* the hero image area.
+        # Extend the canvas with a dark band, then draw text on it.
+        band_h = 110
+        canvas = QPixmap(splash_pixmap.width(), splash_pixmap.height() + band_h)
+        canvas.fill(QColor("#1a1a2e"))
+        p = QPainter(canvas)
+        p.drawPixmap(0, 0, splash_pixmap)
+        # Title
+        p.setPen(QColor("#64b5f6"))
+        p.setFont(QFont("Helvetica Neue", 22, QFont.Weight.Bold))
+        p.drawText(QRect(0, splash_pixmap.height() + 8, canvas.width(), 34),
+                   Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                   "AFNI Pipeline Manager")
+        # Author / lab
+        p.setPen(QColor("#cfd8dc"))
+        p.setFont(QFont("Helvetica Neue", 11))
+        p.drawText(QRect(0, splash_pixmap.height() + 46, canvas.width(), 24),
+                   Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                   "by the Adaptive Brain Networks Neuroimaging Lab  (ABN² Lab)")
+        # Loading line
+        p.setPen(QColor("#4CAF50"))
+        p.setFont(QFont("Helvetica Neue", 10))
+        p.drawText(QRect(0, splash_pixmap.height() + 74, canvas.width(), 22),
+                   Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                   "Loading …")
+        p.end()
+
+        splash = QSplashScreen(canvas, Qt.WindowType.WindowStaysOnTopHint)
         splash.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
         splash.show()
         app.processEvents()

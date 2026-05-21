@@ -62,7 +62,7 @@ class PipelineManagerSignals(QObject):
     output_line = pyqtSignal(str, str)  # subject_id, line
     error_line = pyqtSignal(str, str)  # subject_id, line
     waiting_for_user = pyqtSignal(str, str)  # subject_id, script_name
-    parameters_detected = pyqtSignal(float, int, int)  # tr, timepoints, num_runs
+    parameters_detected = pyqtSignal(float, int, int, str)  # tr, timepoints, num_runs, subject_id
 
 
 class PipelineManager(QObject):
@@ -716,8 +716,10 @@ class PipelineManager(QObject):
             num_runs = self._count_runs(subject)
             self.logger.info(f"Detected runs: {num_runs}")
 
-            # Emit signal with detected parameters
-            self.signals.parameters_detected.emit(subject.tr, subject.timepoints_per_run, num_runs)
+            # Emit signal with detected parameters (incl. which subject)
+            self.signals.parameters_detected.emit(
+                subject.tr, subject.timepoints_per_run, num_runs, subject.subject_id
+            )
 
         except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
             self.logger.error(f"Failed to auto-detect scan parameters: {e}")

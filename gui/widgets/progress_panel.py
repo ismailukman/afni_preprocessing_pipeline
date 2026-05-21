@@ -64,26 +64,48 @@ class ProgressPanel(QWidget):
 
         group_layout.addLayout(time_layout)
 
-        # Control buttons
+        # Control buttons — larger, with object names so the QSS premium theme
+        # styles (startBtn / pauseBtn / stopBtn) apply.  The active button
+        # gets a pulsing-glow effect while the pipeline is running.
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
 
-        self.start_btn = QPushButton("▶ Start")
-        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;")
+        common_btn_css = "font-size: 14pt; font-weight: bold; padding: 14px 22px; min-height: 48px;"
+
+        self.start_btn = QPushButton("▶ Start Pipeline")
+        self.start_btn.setObjectName("startBtn")
+        self.start_btn.setStyleSheet(
+            f"{common_btn_css} background-color: #2E7D32; color: white; border-radius: 6px;"
+        )
         self.start_btn.clicked.connect(self.on_start_clicked)
         button_layout.addWidget(self.start_btn)
 
         self.pause_btn = QPushButton("⏸ Pause")
+        self.pause_btn.setObjectName("pauseBtn")
+        self.pause_btn.setStyleSheet(
+            f"{common_btn_css} background-color: #E65100; color: white; border-radius: 6px;"
+        )
         self.pause_btn.setEnabled(False)
         self.pause_btn.clicked.connect(self.on_pause_clicked)
         button_layout.addWidget(self.pause_btn)
 
         self.stop_btn = QPushButton("⏹ Stop")
+        self.stop_btn.setObjectName("stopBtn")
+        self.stop_btn.setStyleSheet(
+            f"{common_btn_css} background-color: #C62828; color: white; border-radius: 6px;"
+        )
         self.stop_btn.setEnabled(False)
-        self.stop_btn.setStyleSheet("background-color: #f44336; color: white;")
         self.stop_btn.clicked.connect(self.on_stop_clicked)
         button_layout.addWidget(self.stop_btn)
 
         group_layout.addLayout(button_layout)
+
+        # Active-button pulse: applies a QGraphicsDropShadowEffect whose blur
+        # radius oscillates while the pipeline is running.  Set in
+        # _start_active_pulse() and torn down in _stop_active_pulse().
+        from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
+        self._active_btn = None
+        self._active_anim = None
 
         group.setLayout(group_layout)
         layout.addWidget(group)
@@ -105,9 +127,10 @@ class ProgressPanel(QWidget):
 
     def on_stop_clicked(self):
         """Handle stop button click"""
-        # Immediately halt the active-step glow so the user gets visual
-        # feedback even before the pipeline manager finishes winding down.
+        # Immediately halt the active-step glow and the button pulse so the
+        # user gets visual feedback before the pipeline winds down.
         self.step_indicator.freeze()
+        self._stop_active_pulse()
         self.stop_clicked.emit()
         self.set_running(False)
 
@@ -122,6 +145,7 @@ class ProgressPanel(QWidget):
             self.start_btn.setEnabled(False)
             self.pause_btn.setEnabled(True)
             self.stop_btn.setEnabled(True)
+            self._start_active_pulse(self.pause_btn)  # active = "Pause" while running
         else:
             self.timer.stop()
             self.start_btn.setEnabled(True)
@@ -129,6 +153,7 @@ class ProgressPanel(QWidget):
             self.stop_btn.setEnabled(False)
             self.is_paused = False
             self.pause_btn.setText("⏸ Pause")
+            self._stop_active_pulse()
 
     def set_paused(self, paused: bool):
         """Update paused state"""
@@ -138,9 +163,47 @@ class ProgressPanel(QWidget):
             self.timer.stop()
             self.pause_btn.setText("▶ Resume")
             self.status_label.setText("⏸ Paused")
+            self._start_active_pulse(self.start_btn)  # active = "Resume" while paused
         else:
             self.timer.start(1000)
             self.pause_btn.setText("⏸ Pause")
+            self._start_active_pulse(self.pause_btn)
+
+    # ── Active-button pulse ───────────────────────────────────────────────
+    def _start_active_pulse(self, btn):
+        """Apply a pulsing drop-shadow glow to the active control button."""
+        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+        from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
+        from PyQt6.QtGui import QColor
+        self._stop_active_pulse()
+        eff = QGraphicsDropShadowEffect(btn)
+        eff.setOffset(0, 0)
+        eff.setColor(QColor("#64b5f6"))
+        eff.setBlurRadius(12)
+        btn.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"blurRadius", btn)
+        anim.setDuration(900)
+        anim.setStartValue(6)
+        anim.setEndValue(36)
+        anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        anim.setLoopCount(-1)
+        anim.start()
+        self._active_btn = btn
+        self._active_anim = anim
+
+    def _stop_active_pulse(self):
+        if self._active_anim is not None:
+            try:
+                self._active_anim.stop()
+            except Exception:
+                pass
+            self._active_anim = None
+        if self._active_btn is not None:
+            try:
+                self._active_btn.setGraphicsEffect(None)
+            except Exception:
+                pass
+            self._active_btn = None
 
     def update_progress(self, current: int, total: int):
         """Update progress bar"""
