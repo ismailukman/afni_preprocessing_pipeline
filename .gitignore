@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Local session cache
+.claude/
+
+# Large originals
+afni_guiapp.png
+resources/icons/afni_guiapp_original.png
+gui_app/resources/icons/afni_guiapp_original.png
+
+# Lock files
+*.lock
+
+# Logs and temp
+*.log
+*.tmp
+
+# Local-only (not pushed to GitHub)
+archive/
+ReadMe.pdf
+config.cfg
+subjects.csv

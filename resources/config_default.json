@@ -1,0 +1,24 @@
+{
+  "freesurfer_home": "/Applications/freesurfer/7.1.1",
+  "execution_mode": "auto",
+  "stop_on_error": false,
+  "skip_interactive": true,
+  "parallel_subjects": false,
+  "num_parallel": 1,
+  "keep_intermediate": true,
+  "enabled_scripts": {
+    "001a_dcm2niix": true,
+    "001c_rename_files": true,
+    "002_batch_defaceMRI": true,
+    "003_FreeSurfer_recon": true,
+    "003b_FreeSurferQA_SUMA": true,
+    "004_createAP_struct_rf": true,
+    "004_execute_proc": true,
+    "005_afni2nifti": true,
+    "006_get_motion_files": true
+  },
+  "last_parent_dir": "",
+  "last_subjects": [],
+  "window_geometry": {},
+  "timepoints_per_run": 450
+}

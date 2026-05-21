@@ -1,0 +1,162 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── macOS build ──
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r gui_app/requirements.txt
+
+      - name: Build .app with PyInstaller
+        run: pyinstaller afni_pipeline.spec --noconfirm
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -R "dist/AFNI Pipeline Manager.app" dmg_contents/
+          ln -s /Applications dmg_contents/Applications
+          hdiutil create -volname "AFNI Pipeline Manager" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "dist/AFNI-Pipeline-Manager-${GITHUB_REF_NAME}-macOS.dmg"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+
+  # ── Windows build ──
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r gui_app/requirements.txt
+
+      - name: Build .exe with PyInstaller
+        run: pyinstaller afni_pipeline.spec --noconfirm
+
+      - name: Create Windows ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/AFNI Pipeline Manager" -DestinationPath "dist/AFNI-Pipeline-Manager-${{ github.ref_name }}-Windows.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/*.zip
+
+  # ── Linux build ──
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libegl1
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r gui_app/requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller afni_pipeline.spec --noconfirm
+
+      - name: Create Linux tarball
+        run: |
+          cd dist
+          tar czf "AFNI-Pipeline-Manager-${GITHUB_REF_NAME}-Linux.tar.gz" "AFNI Pipeline Manager"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tar
+          path: dist/*.tar.gz
+
+  # ── Create GitHub Release ──
+  release:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: release/
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: release/
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tar
+          path: release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AFNI Pipeline Manager ${{ github.ref_name }}"
+          body: |
+            ## AFNI Preprocessing Pipeline Manager ${{ github.ref_name }}
+
+            ### Downloads
+            - **macOS** — `.dmg` installer (drag to Applications)
+            - **Windows** — `.zip` archive (extract and run `AFNI Pipeline Manager.exe`)
+            - **Linux** — `.tar.gz` archive (extract and run `AFNI Pipeline Manager`)
+
+            ### Requirements
+            Both installers bundle Python and PyQt6. You still need these external tools on your system PATH:
+            - [AFNI](https://afni.nimh.nih.gov/) (3dinfo, afni_proc.py, @afni_refacer_run, etc.)
+            - [FreeSurfer 7.x](https://surfer.nmr.mgh.harvard.edu/)
+            - [dcm2niix](https://github.com/rordenlab/dcm2niix)
+          files: release/*
+          draft: false
+          prerelease: false
