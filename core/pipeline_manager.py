@@ -2,12 +2,15 @@
 import os
 import subprocess
 import shutil
+from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TextIO
 from PyQt6.QtCore import QObject, pyqtSignal
 from .script_runner import ScriptRunner, DirectScriptRunner
 from .config_manager import ConfigManager
 from .logger import PipelineLogger
+
+SUBJECT_LOG_NAME = "preprocessing.log"
 
 
 class Subject:
@@ -75,6 +78,9 @@ class PipelineManager(QObject):
         self.is_paused = False
         self.should_stop = False
         self.user_response = None
+
+        # Per-subject log file handles: subject_id -> file handle
+        self._subject_logs: Dict[str, TextIO] = {}
 
         # Define pipeline scripts
         base_path = Path(__file__).parent.parent / "scripts" / "templates"
@@ -180,10 +186,50 @@ class PipelineManager(QObject):
         # Ensure PreprocessedData folder exists
         self._ensure_preprocessed_folder(subject)
 
+        # Open per-subject log file inside PreprocessedData/
+        self._open_subject_log(subject)
+
         # Try to detect scan parameters early (if files already exist)
         self._detect_scan_parameters(subject)
 
         self._process_next_script(subject)
+
+    # ── Per-subject log file ──────────────────────────────────────────────
+    def _open_subject_log(self, subject: Subject):
+        """Open <subject>/PreprocessedData/preprocessing.log for append."""
+        if subject.subject_id in self._subject_logs:
+            return  # already open
+        log_path = subject.path / "PreprocessedData" / SUBJECT_LOG_NAME
+        try:
+            fh = open(log_path, "a", buffering=1, encoding="utf-8")
+            self._subject_logs[subject.subject_id] = fh
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            fh.write(f"\n{'=' * 70}\n"
+                     f"Session start: {stamp}  |  subject: {subject.subject_id}\n"
+                     f"{'=' * 70}\n")
+        except OSError as e:
+            self.logger.warning(f"Could not open subject log {log_path}: {e}")
+
+    def _close_subject_log(self, subject_id: str):
+        fh = self._subject_logs.pop(subject_id, None)
+        if fh is None:
+            return
+        try:
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            fh.write(f"Session end:   {stamp}\n{'=' * 70}\n")
+            fh.close()
+        except OSError:
+            pass
+
+    def _write_subject_log(self, subject_id: str, level: str, line: str):
+        fh = self._subject_logs.get(subject_id)
+        if fh is None:
+            return
+        try:
+            ts = datetime.now().strftime("%H:%M:%S")
+            fh.write(f"[{ts}] {level:7s} {line}\n")
+        except OSError:
+            pass
 
     def _process_next_script(self, subject: Subject):
         """Process the next script for a subject"""
@@ -203,6 +249,9 @@ class PipelineManager(QObject):
 
         # All scripts completed for this subject
         success = not any(status == "error" for status in subject.status.values())
+        self._write_subject_log(subject.subject_id, "INFO",
+                                f"Subject finished (success={success})")
+        self._close_subject_log(subject.subject_id)
         self.signals.subject_finished.emit(subject.subject_id, success)
         self._process_next_subject()
 
@@ -681,6 +730,8 @@ class PipelineManager(QObject):
             self._detect_scan_parameters(subject)
 
         subject.status[script.name] = "running"
+        self._write_subject_log(subject.subject_id, "STEP",
+                                f"▶ START {script.name} — {script.description}")
         self.signals.script_started.emit(subject.subject_id, script.name)
         self.signals.status_updated.emit(subject.subject_id, script.name, "running")
 
@@ -848,11 +899,13 @@ class PipelineManager(QObject):
     def _handle_output(self, subject_id: str, line: str):
         """Handle output line from script"""
         self.logger.info(line)
+        self._write_subject_log(subject_id, "INFO", line)
         self.signals.output_line.emit(subject_id, line)
 
     def _handle_error(self, subject_id: str, line: str):
         """Handle error line from script"""
         self.logger.warning(line)
+        self._write_subject_log(subject_id, "STDERR", line)
         self.signals.error_line.emit(subject_id, line)
 
     def _handle_script_finished(self, subject: Subject, script: ScriptInfo, success: bool, return_code: int):
@@ -860,6 +913,8 @@ class PipelineManager(QObject):
         if success:
             self.logger.info(f"✓ {script.description} completed successfully")
             subject.status[script.name] = "completed"
+            self._write_subject_log(subject.subject_id, "STEP",
+                                    f"✓ DONE  {script.name} (exit {return_code})")
             self.signals.status_updated.emit(subject.subject_id, script.name, "completed")
             self.signals.script_finished.emit(subject.subject_id, script.name, True)
 
@@ -875,6 +930,8 @@ class PipelineManager(QObject):
         else:
             self.logger.error(f"✗ {script.description} failed (exit code: {return_code})")
             subject.status[script.name] = "error"
+            self._write_subject_log(subject.subject_id, "STEP",
+                                    f"✗ FAIL  {script.name} (exit {return_code})")
             self.signals.status_updated.emit(subject.subject_id, script.name, "error")
             self.signals.script_finished.emit(subject.subject_id, script.name, False)
 
@@ -924,6 +981,9 @@ class PipelineManager(QObject):
     def _finish_pipeline(self, success: bool):
         """Finish pipeline execution"""
         self.is_running = False
+        # Close any per-subject log files still open (Stop / mid-run failure)
+        for sid in list(self._subject_logs.keys()):
+            self._close_subject_log(sid)
         self.signals.pipeline_finished.emit(success)
 
         if success:
