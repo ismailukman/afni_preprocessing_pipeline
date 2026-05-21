@@ -122,6 +122,67 @@ class ConfigPanel(QWidget):
         script_group.setLayout(script_layout)
         layout.addWidget(script_group)
 
+        # ── Processing Parameters (forwarded to afni_proc.py via script 004) ──
+        proc_group = QGroupBox("Processing Parameters")
+        proc_form = QFormLayout()
+
+        self.motion_thresh_spin = QDoubleSpinBox()
+        self.motion_thresh_spin.setRange(0.0, 5.0); self.motion_thresh_spin.setSingleStep(0.05)
+        self.motion_thresh_spin.setDecimals(2); self.motion_thresh_spin.setSuffix(" mm")
+        self.motion_thresh_spin.valueChanged.connect(self.on_config_changed)
+        proc_form.addRow("Motion censor threshold:", self.motion_thresh_spin)
+
+        self.outlier_thresh_spin = QDoubleSpinBox()
+        self.outlier_thresh_spin.setRange(0.0, 1.0); self.outlier_thresh_spin.setSingleStep(0.01)
+        self.outlier_thresh_spin.setDecimals(3)
+        self.outlier_thresh_spin.valueChanged.connect(self.on_config_changed)
+        proc_form.addRow("Outlier fraction:", self.outlier_thresh_spin)
+
+        self.polort_spin = QSpinBox()
+        self.polort_spin.setRange(-1, 9)
+        self.polort_spin.setToolTip("-1 = auto choose based on run duration")
+        self.polort_spin.valueChanged.connect(self.on_config_changed)
+        proc_form.addRow("Polynomial order:", self.polort_spin)
+
+        bp_row = QHBoxLayout()
+        self.bp_low_spin = QDoubleSpinBox()
+        self.bp_low_spin.setRange(0.0, 1.0); self.bp_low_spin.setSingleStep(0.005)
+        self.bp_low_spin.setDecimals(3); self.bp_low_spin.setSuffix(" Hz")
+        self.bp_low_spin.valueChanged.connect(self.on_config_changed)
+        self.bp_high_spin = QDoubleSpinBox()
+        self.bp_high_spin.setRange(0.0, 1.0); self.bp_high_spin.setSingleStep(0.005)
+        self.bp_high_spin.setDecimals(3); self.bp_high_spin.setSuffix(" Hz")
+        self.bp_high_spin.valueChanged.connect(self.on_config_changed)
+        bp_row.addWidget(self.bp_low_spin)
+        bp_row.addWidget(QLabel("→"))
+        bp_row.addWidget(self.bp_high_spin)
+        bp_wrap = QWidget(); bp_wrap.setLayout(bp_row)
+        proc_form.addRow("Bandpass filter:", bp_wrap)
+
+        self.blur_size_spin = QDoubleSpinBox()
+        self.blur_size_spin.setRange(0.0, 15.0); self.blur_size_spin.setSingleStep(0.5)
+        self.blur_size_spin.setDecimals(1); self.blur_size_spin.setSuffix(" mm FWHM")
+        self.blur_size_spin.valueChanged.connect(self.on_config_changed)
+        proc_form.addRow("Spatial blur:", self.blur_size_spin)
+
+        self.tpattern_combo = QComboBox()
+        for pat in ("seq+z", "seq-z", "alt+z", "alt-z", "alt+z2", "alt-z2",
+                    "FROM_IMAGE", "@slice_timing.txt"):
+            self.tpattern_combo.addItem(pat)
+        self.tpattern_combo.setEditable(True)
+        self.tpattern_combo.setToolTip("Slice timing pattern passed to afni_proc.py "
+                                       "(-tshift_opts_ts -tpattern …)")
+        self.tpattern_combo.currentTextChanged.connect(self.on_config_changed)
+        proc_form.addRow("Slice timing pattern:", self.tpattern_combo)
+
+        self.template_edit = QLineEdit()
+        self.template_edit.setPlaceholderText("MNI152_2009_template_SSW.nii.gz")
+        self.template_edit.textChanged.connect(self.on_config_changed)
+        proc_form.addRow("Standard template:", self.template_edit)
+
+        proc_group.setLayout(proc_form)
+        layout.addWidget(proc_group)
+
         # Detected Parameters (Auto-detected during processing)
         detected_group = QGroupBox("Auto-Detected Parameters")
         detected_layout = QFormLayout()
@@ -253,6 +314,16 @@ class ConfigPanel(QWidget):
         self.stop_on_error_check.setChecked(self.config.get("stop_on_error", False))
         self.archive_run_check.setChecked(self.config.get("archive_previous_run", True))
 
+        # Processing parameters (with sensible defaults)
+        self.motion_thresh_spin.setValue(float(self.config.get("motion_threshold", 0.4)))
+        self.outlier_thresh_spin.setValue(float(self.config.get("outlier_threshold", 0.1)))
+        self.polort_spin.setValue(int(self.config.get("polort", 2)))
+        self.bp_low_spin.setValue(float(self.config.get("bandpass_low", 0.01)))
+        self.bp_high_spin.setValue(float(self.config.get("bandpass_high", 0.1)))
+        self.blur_size_spin.setValue(float(self.config.get("blur_size", 6.0)))
+        self.tpattern_combo.setCurrentText(self.config.get("tpattern", "seq+z"))
+        self.template_edit.setText(self.config.get("template", "MNI152_2009_template_SSW.nii.gz"))
+
         # FreeSurfer path
         default_path = self.get_default_freesurfer_path()
         self.freesurfer_path_edit.setText(self.config.get("freesurfer_home", default_path))
@@ -275,6 +346,16 @@ class ConfigPanel(QWidget):
 
         # Archive previous PreprocessedData on rerun
         self.config.set("archive_previous_run", self.archive_run_check.isChecked())
+
+        # Processing parameters
+        self.config.set("motion_threshold",  self.motion_thresh_spin.value())
+        self.config.set("outlier_threshold", self.outlier_thresh_spin.value())
+        self.config.set("polort",            self.polort_spin.value())
+        self.config.set("bandpass_low",      self.bp_low_spin.value())
+        self.config.set("bandpass_high",     self.bp_high_spin.value())
+        self.config.set("blur_size",         self.blur_size_spin.value())
+        self.config.set("tpattern",          self.tpattern_combo.currentText())
+        self.config.set("template",          self.template_edit.text() or "MNI152_2009_template_SSW.nii.gz")
 
         # FreeSurfer path
         self.config.set("freesurfer_home", self.freesurfer_path_edit.text())

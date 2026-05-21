@@ -3,9 +3,20 @@
   "execution_mode": "auto",
   "stop_on_error": false,
   "skip_interactive": true,
+  "archive_previous_run": true,
   "parallel_subjects": false,
   "num_parallel": 1,
   "keep_intermediate": true,
+
+  "motion_threshold": 0.4,
+  "outlier_threshold": 0.1,
+  "polort": 2,
+  "bandpass_low": 0.01,
+  "bandpass_high": 0.1,
+  "blur_size": 6,
+  "tpattern": "seq+z",
+  "template": "MNI152_2009_template_SSW.nii.gz",
+
   "enabled_scripts": {
     "001a_dcm2niix": true,
     "001c_rename_files": true,

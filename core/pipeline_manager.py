@@ -874,7 +874,20 @@ class PipelineManager(QObject):
             "002_batch_defaceMRI": [dcm_folder],
             "003_FreeSurfer_recon": [dcm_folder, subj_id, freesurfer_home],
             "003b_FreeSurferQA_SUMA": [dcm_folder, subj_id, freesurfer_home],
-            "004_createAP_struct_rf": [dcm_folder, subj_id, str(self._count_runs(subject)), str(subject.tr)],
+            "004_createAP_struct_rf": [
+                dcm_folder,                                                       # $1
+                subj_id,                                                          # $2
+                str(self._count_runs(subject)),                                   # $3 num_runs
+                str(self.config.get("motion_threshold",  0.4)),                   # $4 motion
+                str(self.config.get("outlier_threshold", 0.1)),                   # $5 outlier
+                str(self.config.get("polort",            2)),                     # $6 polort
+                str(self.config.get("bandpass_low",      0.01)),                  # $7 bp_low
+                str(self.config.get("bandpass_high",     0.1)),                   # $8 bp_high
+                str(self.config.get("blur_size",         6)),                     # $9 blur
+                str(self.config.get("tpattern",          "seq+z")),               # $10 tpattern
+                str(self.config.get("template", "MNI152_2009_template_SSW.nii.gz")),  # $11 template
+                "1",                                                              # $12 auto_execute
+            ],
             "005_afni2nifti": [dcm_folder, subj_id, str(self._count_runs(subject)),
                              str(subject.timepoints_per_run)],
             "006_get_motion_files": [dcm_folder, subj_id, str(self._count_runs(subject))],
