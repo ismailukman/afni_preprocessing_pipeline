@@ -107,6 +107,30 @@ class PipelineManager(QObject):
             # Only initialize status for enabled scripts
             subject.status = {script.name: "pending" for script in enabled_scripts}
 
+    def add_subjects(self, new_subjects: List[Subject]):
+        """Append subjects to a running pipeline.  Skips IDs already queued.
+
+        If the pipeline is idle (between subjects) when more are added, the
+        normal ``_process_next_subject`` walk will pick them up automatically
+        once the current subject finishes.
+        """
+        existing_ids = {s.subject_id for s in self.subjects}
+        enabled_scripts = self.get_enabled_scripts()
+        added = []
+        for subject in new_subjects:
+            if subject.subject_id in existing_ids:
+                continue
+            subject.status = {script.name: "pending" for script in enabled_scripts}
+            self.subjects.append(subject)
+            existing_ids.add(subject.subject_id)
+            added.append(subject)
+        if added:
+            self.logger.info(
+                f"Queued {len(added)} additional subject(s): "
+                + ", ".join(s.subject_id for s in added)
+            )
+        return added
+
     def get_enabled_scripts(self) -> List[ScriptInfo]:
         """Get list of enabled scripts"""
         return [script for script in self.scripts if self.config.is_script_enabled(script.name)]

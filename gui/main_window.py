@@ -186,6 +186,7 @@ class MainWindow(QMainWindow):
         """Setup signal/slot connections"""
         # Subject selector
         self.subject_selector.subjects_changed.connect(self.on_subjects_changed)
+        self.subject_selector.apply_additions_clicked.connect(self.on_apply_additions)
 
         # Progress panel
         self.progress_panel.start_clicked.connect(self.start_pipeline)
@@ -265,6 +266,10 @@ class MainWindow(QMainWindow):
 
         # Connect pipeline signals
         self.connect_pipeline_signals()
+
+        # Mark the initial subjects as "applied" and surface the Apply button
+        self.subject_selector.mark_applied(subjects)
+        self.subject_selector.set_pipeline_running(True)
 
         # Start pipeline
         self.pipeline_manager.start_pipeline()
@@ -360,9 +365,29 @@ class MainWindow(QMainWindow):
         """
         self.log_viewer.append_log(subject_id, line, "WARNING")
 
+    def on_apply_additions(self, new_subjects):
+        """Queue newly-selected subjects into the running pipeline."""
+        if not self.pipeline_manager or not self.pipeline_manager.is_running:
+            return
+        added = self.pipeline_manager.add_subjects(new_subjects)
+        if not added:
+            return
+        # New log tab for each added subject (script_list is shared across subjects)
+        for subject in added:
+            self.log_viewer.add_subject_tab(subject.subject_id)
+        self.subject_selector.mark_applied(added)
+        # Refresh progress total now that more steps are queued
+        current, total = self.pipeline_manager.get_progress()
+        self.progress_panel.update_progress(current, total)
+        self.statusBar().showMessage(
+            f"Added {len(added)} subject(s) to the queue: "
+            + ", ".join(s.subject_id for s in added)
+        )
+
     def on_pipeline_finished(self, success: bool):
         """Handle pipeline finished"""
         self.progress_panel.set_completed(success)
+        self.subject_selector.set_pipeline_running(False)
 
         if success:
             self.statusBar().showMessage("Pipeline completed successfully!")

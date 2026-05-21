@@ -10,12 +10,15 @@ from core.pipeline_manager import Subject
 class SubjectSelector(QWidget):
     """Widget for selecting subjects to process"""
 
-    subjects_changed = pyqtSignal(list)  # List of Subject objects
+    subjects_changed = pyqtSignal(list)            # all currently checked subjects
+    apply_additions_clicked = pyqtSignal(list)     # only the *new* subjects to append
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_dir = None
         self.selected_subjects = []
+        self._applied_ids = set()   # subject_ids already pushed into the running pipeline
+        self._pipeline_running = False
         self.init_ui()
 
     def init_ui(self):
@@ -65,6 +68,17 @@ class SubjectSelector(QWidget):
         self.count_label = QLabel("0 subjects selected")
         self.count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         group_layout.addWidget(self.count_label)
+
+        # Apply additions button (only useful while pipeline is running)
+        self.apply_btn = QPushButton("➕ Apply Additions")
+        self.apply_btn.setToolTip(
+            "Add newly selected subjects to the running pipeline.\n"
+            "Active only while a pipeline is in progress."
+        )
+        self.apply_btn.setEnabled(False)
+        self.apply_btn.setVisible(False)
+        self.apply_btn.clicked.connect(self._emit_additions)
+        group_layout.addWidget(self.apply_btn)
 
         group.setLayout(group_layout)
         layout.addWidget(group)
@@ -202,6 +216,41 @@ class SubjectSelector(QWidget):
                 self.selected_subjects.append(subject)
 
         self.subjects_changed.emit(self.selected_subjects)
+        self._refresh_apply_button()
+
+    # ── Apply-additions support ────────────────────────────────────────────
+    def set_pipeline_running(self, running: bool):
+        """Show/hide the Apply button based on pipeline state."""
+        self._pipeline_running = running
+        self.apply_btn.setVisible(running)
+        if not running:
+            self._applied_ids.clear()
+        self._refresh_apply_button()
+
+    def mark_applied(self, subjects):
+        """Record subjects as already pushed into the running pipeline."""
+        for s in subjects:
+            self._applied_ids.add(s.subject_id)
+        self._refresh_apply_button()
+
+    def _pending_additions(self):
+        return [s for s in self.selected_subjects if s.subject_id not in self._applied_ids]
+
+    def _refresh_apply_button(self):
+        if not self._pipeline_running:
+            self.apply_btn.setEnabled(False)
+            return
+        pending = self._pending_additions()
+        self.apply_btn.setEnabled(bool(pending))
+        if pending:
+            self.apply_btn.setText(f"➕ Apply Additions ({len(pending)})")
+        else:
+            self.apply_btn.setText("➕ Apply Additions")
+
+    def _emit_additions(self):
+        pending = self._pending_additions()
+        if pending:
+            self.apply_additions_clicked.emit(pending)
 
     def get_selected_subjects(self):
         """Get list of selected subjects"""
