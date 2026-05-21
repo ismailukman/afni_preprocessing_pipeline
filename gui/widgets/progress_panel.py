@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from datetime import datetime, timedelta
 
+from gui.widgets.animated_progress import AnimatedProgressBar, StepIndicator
+
 
 class ProgressPanel(QWidget):
     """Widget for displaying overall progress"""
@@ -32,10 +34,9 @@ class ProgressPanel(QWidget):
         group = QGroupBox("Progress")
         group_layout = QVBoxLayout()
 
-        # Overall progress bar
-        self.overall_progress = QProgressBar()
+        # Overall progress bar (animated shimmer)
+        self.overall_progress = AnimatedProgressBar()
         self.overall_progress.setMaximum(100)
-        self.overall_progress.setTextVisible(True)
         self.overall_progress.setFormat("%p% (%v/%m steps)")
         group_layout.addWidget(QLabel("Overall Progress:"))
         group_layout.addWidget(self.overall_progress)
@@ -45,6 +46,10 @@ class ProgressPanel(QWidget):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("font-weight: bold; font-size: 12pt;")
         group_layout.addWidget(self.status_label)
+
+        # Horizontal step indicator with active glow
+        self.step_indicator = StepIndicator()
+        group_layout.addWidget(self.step_indicator)
 
         # Time info
         time_layout = QHBoxLayout()
@@ -174,7 +179,20 @@ class ProgressPanel(QWidget):
         self.eta_label.setText("ETA: --:--:--")
         self.start_time = None
         self.elapsed_seconds = 0
+        self.step_indicator.reset()
         self.set_running(False)
+
+    def set_steps(self, labels):
+        """Populate the horizontal step indicator with step labels."""
+        self.step_indicator.set_steps(labels)
+
+    def set_current_step(self, name: str):
+        """Highlight the active step by name in the step indicator."""
+        self.step_indicator.set_current_by_name(name)
+
+    def mark_step_done(self, name: str, success: bool = True):
+        """Mark a step as completed (green) or errored (red)."""
+        self.step_indicator.mark_done_by_name(name, success)
 
     def set_completed(self, success: bool):
         """Set completion state"""

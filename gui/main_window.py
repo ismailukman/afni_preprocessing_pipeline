@@ -255,6 +255,11 @@ class MainWindow(QMainWindow):
         # Reset detected parameters
         self.config_panel.reset_detected_parameters()
 
+        # Populate step indicator with enabled scripts
+        enabled_scripts = self.pipeline_manager.get_enabled_scripts()
+        step_labels = [s.name.split("_")[0] for s in enabled_scripts]
+        self.progress_panel.set_steps(step_labels)
+
         # Set up pipeline manager
         self.pipeline_manager.set_subjects(subjects)
 
@@ -321,6 +326,7 @@ class MainWindow(QMainWindow):
         """Handle script started"""
         self.script_list.update_script_status(subject_id, script_name, "running")
         self.progress_panel.update_status(subject_id, script_name)
+        self.progress_panel.set_current_step(script_name)
 
         # Update progress
         current, total = self.pipeline_manager.get_progress()
@@ -330,6 +336,7 @@ class MainWindow(QMainWindow):
         """Handle script finished"""
         status = "completed" if success else "error"
         self.script_list.update_script_status(subject_id, script_name, status)
+        self.progress_panel.mark_step_done(script_name, success)
 
         # Update progress
         current, total = self.pipeline_manager.get_progress()

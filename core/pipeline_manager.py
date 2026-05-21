@@ -386,16 +386,26 @@ class PipelineManager(QObject):
 
         # Priority 3: Generic functional files (original or various formats)
         generic_patterns = [
+            "func_run{i}+orig.nii.gz",
+            "func_run{i}+orig.nii",
             "func_run{i}.nii.gz",
             "func_run{i}.nii",
+            "*rest*run{i}*+orig.nii.gz",
+            "*rest*run{i}*+orig.nii",
             "*rest*run{i}*.nii.gz",
             "*rest*run{i}*.nii",
+            "*resting*+orig.nii.gz",
+            "*resting*+orig.nii",
             "*resting*.nii.gz",
             "*resting*.nii",
+            "*rest*+orig.nii.gz",
+            "*rest*+orig.nii",
             "*rest*.nii.gz",
             "*rest*.nii",
             "*bold*.nii.gz",
             "*bold*.nii",
+            "*func*+orig.nii.gz",
+            "*func*+orig.nii",
             "*func*.nii.gz",
             "*func*.nii",
         ]
@@ -752,10 +762,16 @@ class PipelineManager(QObject):
 
         # Priority 3: Generic functional files
         generic_patterns = [
+            "func_run{i}+orig.nii.gz",
+            "func_run{i}+orig.nii",
             "func_run{i}.nii.gz",
             "func_run{i}.nii",
+            "*rest*run{i}*+orig.nii.gz",
+            "*rest*run{i}*+orig.nii",
             "*rest*run{i}*.nii.gz",
             "*rest*run{i}*.nii",
+            "*_run{i}*+orig.nii.gz",
+            "*_run{i}*+orig.nii",
             "*_run{i}*.nii.gz",
             "*_run{i}*.nii",
         ]
