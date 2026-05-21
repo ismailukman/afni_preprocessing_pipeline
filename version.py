@@ -3,4 +3,4 @@
 Bump this whenever a new release tag is cut.  Imported by main.py (window
 title + splash) and by the About dialog.
 """
-__version__ = "2.1.5"
+__version__ = "2.1.6"
