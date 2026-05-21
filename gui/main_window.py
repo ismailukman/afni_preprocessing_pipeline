@@ -280,6 +280,7 @@ class MainWindow(QMainWindow):
 
         # Configuration
         self.config_panel.config_changed.connect(self.on_config_changed)
+        self.config_panel.redetect_clicked.connect(self.on_redetect_clicked)
 
         # Logger signals
         self.logger.signals.log_message.connect(self.on_log_message)
@@ -287,6 +288,26 @@ class MainWindow(QMainWindow):
     def on_subjects_changed(self, subjects):
         """Handle subject selection change"""
         self.statusBar().showMessage(f"{len(subjects)} subject(s) selected")
+
+    def on_redetect_clicked(self):
+        """Re-run scan-parameter detection for the currently-selected subjects."""
+        if not self.pipeline_manager:
+            self.statusBar().showMessage("Pipeline not initialized yet.")
+            return
+        subjects = self.subject_selector.get_selected_subjects()
+        if not subjects:
+            QMessageBox.information(
+                self, "Re-detect",
+                "Select at least one subject first — detection reads the\n"
+                "PreprocessedData folder of each selected subject."
+            )
+            return
+        # Use the running pipeline's current subject when one is active, else
+        # the first selected subject — detection is per-subject.
+        target = self.pipeline_manager.current_subject or subjects[0]
+        self.statusBar().showMessage(f"Re-detecting parameters from {target.subject_id}…")
+        self.config_panel.reset_detected_parameters()
+        self.pipeline_manager._detect_scan_parameters(target)
 
     def on_config_changed(self):
         """Handle configuration change"""

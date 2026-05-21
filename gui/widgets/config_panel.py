@@ -13,6 +13,7 @@ class ConfigPanel(QWidget):
     """Widget for configuring pipeline settings"""
 
     config_changed = pyqtSignal()
+    redetect_clicked = pyqtSignal()  # manual TR/TPs/runs re-detection request
 
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
@@ -145,6 +146,17 @@ class ConfigPanel(QWidget):
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #2196F3; font-size: 9pt; padding: 5px;")
         detected_layout.addRow("", info_label)
+
+        # Manual re-detect button (for when auto-detect failed or you just want to refresh)
+        from PyQt6.QtWidgets import QPushButton
+        self.redetect_btn = QPushButton("🔄 Re-detect now")
+        self.redetect_btn.setToolTip(
+            "Scan the selected subjects' PreprocessedData folders right now for "
+            "TR / timepoints / runs.\nUseful if auto-detect didn't fire (e.g. before "
+            "the pipeline has been started, or if files were added after start)."
+        )
+        self.redetect_btn.clicked.connect(self.redetect_clicked.emit)
+        detected_layout.addRow("", self.redetect_btn)
 
         detected_group.setLayout(detected_layout)
         layout.addWidget(detected_group)
