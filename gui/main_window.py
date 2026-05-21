@@ -347,12 +347,18 @@ class MainWindow(QMainWindow):
         self.script_list.update_script_status(subject_id, script_name, status)
 
     def on_output_line(self, subject_id: str, line: str):
-        """Handle output line"""
+        """Handle stdout line."""
         self.log_viewer.append_log(subject_id, line, "INFO")
 
     def on_error_line(self, subject_id: str, line: str):
-        """Handle error line"""
-        self.log_viewer.append_log(subject_id, line, "ERROR")
+        """Handle stderr line.
+
+        Many AFNI/shell tools write informational output to stderr (lines
+        starting with ``++``).  Let the log viewer classify by content; only
+        fall back to WARNING if nothing in the line looks like an error or info
+        marker.  This avoids painting the whole log red.
+        """
+        self.log_viewer.append_log(subject_id, line, "WARNING")
 
     def on_pipeline_finished(self, success: bool):
         """Handle pipeline finished"""

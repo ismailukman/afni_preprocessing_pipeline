@@ -1,9 +1,47 @@
 """Log viewer widget for displaying real-time output"""
+import re
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                               QTabWidget, QPushButton, QLineEdit, QLabel,
                               QGroupBox, QCheckBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QTextCursor, QColor, QTextCharFormat, QFont
+
+# ANSI escape codes (e.g. "\x1b[7m", "\x1b[0m") AFNI emits — strip for clean display
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def classify_line(line: str, level: str = "INFO") -> str:
+    """Classify a log line as INFO / WARNING / ERROR / SUCCESS based on content.
+
+    AFNI conventions (Bob Cox's tools):
+        ``++ ...``  → informational (normal output, often on stderr)
+        ``*+ WARNING`` / ``+* WARNING`` → warning
+        ``** ERROR`` / ``*+ ERROR``     → error
+        ``** FATAL``                     → error
+
+    Falls back to keyword scan, then to the ``level`` arg if nothing matches.
+    """
+    stripped = line.lstrip()
+    low = stripped.lower()
+
+    # AFNI prefixes (take precedence — these are stable conventions)
+    if re.match(r"^\*\*\s*(error|fatal)\b", low) or re.match(r"^\*\+\s*error\b", low):
+        return "ERROR"
+    if re.match(r"^\*\+\s*warning\b", low) or re.match(r"^\+\*\s*warning\b", low):
+        return "WARNING"
+    if stripped.startswith("++") or stripped.startswith("+*"):
+        # Both are AFNI informational output (++ normal, +* a trace continuation)
+        return "INFO"
+
+    # Generic markers
+    if "✗" in line or " error:" in low or low.startswith("error:") or low.startswith("traceback"):
+        return "ERROR"
+    if "⚠" in line or " warning:" in low or low.startswith("warning:"):
+        return "WARNING"
+    if "✓" in line or "success" in low or "done (good exit)" in low or "completed" in low:
+        return "SUCCESS"
+
+    return level
 
 
 class LogTab(QWidget):
@@ -48,31 +86,32 @@ class LogTab(QWidget):
         self.setLayout(layout)
 
     def append_line(self, line: str, level: str = "INFO"):
-        """Append a line to the log"""
-        # Color based on level or content
+        """Append a line to the log, classifying by AFNI/shell content conventions."""
+        # Strip ANSI color escapes and any literal \n sequences AFNI sometimes emits
+        line = _ANSI_RE.sub("", line).replace("\\n", "")
+        if not line:
+            return
+
         cursor = self.text_edit.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
+        fmt = QTextCharFormat()
 
-        format = QTextCharFormat()
-
-        # Set color based on content
-        line_lower = line.lower()
-        if "error" in line_lower or "✗" in line or level == "ERROR":
-            format.setForeground(QColor("#f44336"))  # Red
-        elif "warning" in line_lower or "⚠" in line or level == "WARNING":
-            format.setForeground(QColor("#FF9800"))  # Orange
-        elif "✓" in line or "success" in line_lower:
-            format.setForeground(QColor("#4CAF50"))  # Green
+        classified = classify_line(line, level)
+        if classified == "ERROR":
+            fmt.setForeground(QColor("#ef5350"))           # Red
+        elif classified == "WARNING":
+            fmt.setForeground(QColor("#FFB74D"))           # Orange
+        elif classified == "SUCCESS":
+            fmt.setForeground(QColor("#81C784"))           # Green
         elif "====" in line or "----" in line:
-            format.setForeground(QColor("#2196F3"))  # Blue
-            format.setFontWeight(QFont.Weight.Bold)
+            fmt.setForeground(QColor("#64b5f6"))           # Blue header
+            fmt.setFontWeight(QFont.Weight.Bold)
         else:
-            format.setForeground(QColor("#212121"))  # Default
+            fmt.setForeground(QColor("#c8e6c9"))           # Default: readable on dark bg
 
-        cursor.setCharFormat(format)
+        cursor.setCharFormat(fmt)
         cursor.insertText(line + "\n")
 
-        # Auto-scroll if enabled
         if self.auto_scroll:
             self.text_edit.setTextCursor(cursor)
             self.text_edit.ensureCursorVisible()
