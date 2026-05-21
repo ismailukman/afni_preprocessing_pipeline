@@ -242,7 +242,6 @@ class ConfigPanel(QWidget):
         detected_layout.addRow("", info_label)
 
         # Manual re-detect button (for when auto-detect failed or you just want to refresh)
-        from PyQt6.QtWidgets import QPushButton
         self.redetect_btn = QPushButton("🔄 Re-detect now")
         self.redetect_btn.setToolTip(
             "Scan the selected subjects' PreprocessedData folders right now for "
