@@ -46,7 +46,10 @@ def main():
         pass  # colorSchemeChanged not available on older Qt versions
 
     # Show splash screen
-    splash_pixmap_path = Path(__file__).parent / "resources" / "icons" / "afni_guiapp.png"
+    repo_root = Path(__file__).parent
+    hero_path = repo_root / "docs" / "images" / "afni_guiapp_hero.png"
+    icon_path = repo_root / "resources" / "icons" / "afni_guiapp.png"
+    splash_pixmap_path = hero_path if hero_path.exists() else icon_path
     splash = None
     if splash_pixmap_path.exists():
         splash_pixmap = QPixmap(str(splash_pixmap_path))
