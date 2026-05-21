@@ -145,7 +145,9 @@ class ProgressPanel(QWidget):
             self.start_btn.setEnabled(False)
             self.pause_btn.setEnabled(True)
             self.stop_btn.setEnabled(True)
-            self._start_active_pulse(self.pause_btn)  # active = "Pause" while running
+            # The pulse reflects current state — Start was just clicked, so
+            # Start glows while the pipeline is actively running.
+            self._start_active_pulse(self.start_btn)
         else:
             self.timer.stop()
             self.start_btn.setEnabled(True)
@@ -163,11 +165,13 @@ class ProgressPanel(QWidget):
             self.timer.stop()
             self.pause_btn.setText("▶ Resume")
             self.status_label.setText("⏸ Paused")
-            self._start_active_pulse(self.start_btn)  # active = "Resume" while paused
+            # Pause was just clicked — Pause glows to indicate paused state.
+            self._start_active_pulse(self.pause_btn)
         else:
             self.timer.start(1000)
             self.pause_btn.setText("⏸ Pause")
-            self._start_active_pulse(self.pause_btn)
+            # Back to running — Start glows again.
+            self._start_active_pulse(self.start_btn)
 
     # ── Active-button pulse ───────────────────────────────────────────────
     def _start_active_pulse(self, btn):
