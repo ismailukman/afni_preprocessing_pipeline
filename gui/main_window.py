@@ -183,6 +183,70 @@ class MainWindow(QMainWindow):
         # Populate step indicator with currently enabled scripts
         self._refresh_step_indicator()
 
+    def _resolve_archive_choices(self, subjects) -> bool:
+        """For each subject with non-empty PreprocessedData, ask Continue vs Restart.
+
+        Sets ``subject.archive_existing`` to True (Restart) or False (Continue).
+        A single "Apply to all remaining" option is offered once more than one
+        subject needs prompting.  Returns False if the user cancels — in that
+        case the caller should abort.
+        """
+        candidates = []
+        for s in subjects:
+            try:
+                pre = s.path / "PreprocessedData"
+                if pre.is_dir() and any(pre.iterdir()):
+                    candidates.append(s)
+            except OSError:
+                continue
+        if not candidates:
+            return True
+
+        apply_to_all = False
+        bulk_choice = None  # True=Restart, False=Continue
+
+        for subject in candidates:
+            if apply_to_all:
+                subject.archive_existing = bulk_choice
+                continue
+
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle("Existing PreprocessedData")
+            dlg.setIcon(QMessageBox.Icon.Question)
+            dlg.setText(f"<b>{subject.subject_id}</b> already has a "
+                        f"<code>PreprocessedData</code> folder with data.")
+            dlg.setInformativeText(
+                "▶ <b>Continue</b> — resume using the existing files "
+                "(scripts may skip steps that already have outputs).<br><br>"
+                "🔄 <b>Restart</b> — archive the existing folder to "
+                "<code>PreprocessedData_b</code> (or next free letter) and "
+                "start a fresh run."
+            )
+            cont_btn = dlg.addButton("▶ Continue", QMessageBox.ButtonRole.AcceptRole)
+            restart_btn = dlg.addButton("🔄 Restart", QMessageBox.ButtonRole.DestructiveRole)
+            cancel_btn = dlg.addButton(QMessageBox.StandardButton.Cancel)
+
+            apply_box = None
+            if len(candidates) > 1:
+                from PyQt6.QtWidgets import QCheckBox
+                apply_box = QCheckBox("Apply this choice to all remaining subjects")
+                dlg.setCheckBox(apply_box)
+
+            dlg.setDefaultButton(cont_btn)
+            dlg.exec()
+
+            clicked = dlg.clickedButton()
+            if clicked is cancel_btn:
+                return False
+            choice_restart = (clicked is restart_btn)
+            subject.archive_existing = choice_restart
+
+            if apply_box is not None and apply_box.isChecked():
+                apply_to_all = True
+                bulk_choice = choice_restart
+
+        return True
+
     def _refresh_step_indicator(self):
         """Push the currently-enabled pipeline scripts into the step indicator.
 
@@ -254,6 +318,10 @@ class MainWindow(QMainWindow):
                 "Please check the configuration."
             )
             return
+
+        # Ask Continue / Restart for any subject with existing PreprocessedData
+        if not self._resolve_archive_choices(subjects):
+            return  # user cancelled
 
         # Clear previous logs
         self.log_viewer.clear_all_logs()
@@ -384,6 +452,9 @@ class MainWindow(QMainWindow):
         """Queue newly-selected subjects into the running pipeline."""
         if not self.pipeline_manager or not self.pipeline_manager.is_running:
             return
+        # Same prompt for the additions: continue vs restart
+        if not self._resolve_archive_choices(new_subjects):
+            return  # user cancelled — don't add anything
         added = self.pipeline_manager.add_subjects(new_subjects)
         if not added:
             return

@@ -53,12 +53,12 @@ class ConfigPanel(QWidget):
         exec_layout.addWidget(self.stop_on_error_check)
 
         self.archive_run_check = QCheckBox(
-            "Archive existing PreprocessedData → PreprocessedData_b, _c, _d…"
+            "Default to Restart when prompted (archive existing PreprocessedData)"
         )
         self.archive_run_check.setToolTip(
-            "If a PreprocessedData folder already exists with data, rename it\n"
-            "to the next free PreprocessedData_<letter> before starting, so the\n"
-            "new run begins in a fresh folder. Disable to allow resuming."
+            "When a subject's PreprocessedData folder already has data, you'll be\n"
+            "asked whether to Continue (resume) or Restart (archive to _b/_c/…).\n"
+            "This setting only controls the default if the prompt is auto-dismissed."
         )
         self.archive_run_check.stateChanged.connect(self.on_config_changed)
         exec_layout.addWidget(self.archive_run_check)

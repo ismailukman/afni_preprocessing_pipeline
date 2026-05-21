@@ -23,6 +23,10 @@ class Subject:
         self.status = {}  # script_name -> status
         self.tr = 2.0  # Default TR, to be auto-detected
         self.timepoints_per_run = 450  # Default, to be auto-detected
+        # Per-subject override for "archive existing PreprocessedData" decision.
+        # None = use the global config default; True = archive on start;
+        # False = keep existing folder and continue/resume.
+        self.archive_existing: Optional[bool] = None
 
     def __str__(self):
         return self.subject_id
@@ -306,9 +310,20 @@ class PipelineManager(QObject):
         """
         preprocessed_dir = subject.path / "PreprocessedData"
 
-        # Archive previous run, if requested and not empty
-        if self.config.get("archive_previous_run", True):
+        # Decide whether to archive existing PreprocessedData on this run.
+        # Per-subject decision (from the runtime prompt) wins; otherwise fall
+        # back to the global config default.
+        if subject.archive_existing is None:
+            should_archive = self.config.get("archive_previous_run", True)
+        else:
+            should_archive = bool(subject.archive_existing)
+
+        if should_archive:
             self._archive_existing_preprocessed_dir(subject, preprocessed_dir)
+        elif preprocessed_dir.exists():
+            self.logger.info(
+                f"Continuing in existing folder: {preprocessed_dir.name} (not archived)"
+            )
 
         # Create folder if it doesn't exist
         if not preprocessed_dir.exists():
