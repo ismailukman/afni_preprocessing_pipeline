@@ -1,5 +1,6 @@
 """Pipeline manager for orchestrating the AFNI preprocessing workflow"""
 import os
+import string
 import subprocess
 import shutil
 from datetime import datetime
@@ -194,6 +195,43 @@ class PipelineManager(QObject):
 
         self._process_next_script(subject)
 
+    def _archive_existing_preprocessed_dir(self, subject: Subject, preprocessed_dir: Path):
+        """Rename a non-empty PreprocessedData/ to the next free letter suffix.
+
+        First rerun  → renames existing folder to PreprocessedData_b
+        Second rerun → renames existing folder to PreprocessedData_c
+        … and so on, skipping any letters already taken.
+        Letters a is reserved for the original run (never used as a suffix).
+        """
+        if not preprocessed_dir.exists():
+            return
+        try:
+            if not any(preprocessed_dir.iterdir()):
+                return  # empty folder, nothing to archive
+        except OSError:
+            return
+
+        for letter in string.ascii_lowercase[1:]:  # b, c, d, ..., z
+            candidate = subject.path / f"PreprocessedData_{letter}"
+            if candidate.exists():
+                continue
+            try:
+                preprocessed_dir.rename(candidate)
+                self.logger.info(
+                    f"Archived previous run: PreprocessedData → PreprocessedData_{letter}"
+                )
+                return
+            except OSError as e:
+                self.logger.warning(
+                    f"Could not archive PreprocessedData to PreprocessedData_{letter}: {e}"
+                )
+                return
+
+        self.logger.warning(
+            "Exhausted suffixes b..z for archiving; "
+            "leaving existing PreprocessedData in place."
+        )
+
     # ── Per-subject log file ──────────────────────────────────────────────
     def _open_subject_log(self, subject: Subject):
         """Open <subject>/PreprocessedData/preprocessing.log for append."""
@@ -260,8 +298,17 @@ class PipelineManager(QObject):
 
         If PreprocessedData is empty, scan parent folder for NIfTI files,
         intelligently identify structural vs functional, and copy/rename them.
+
+        If ``archive_previous_run`` is enabled in config and the existing
+        PreprocessedData folder has contents, rename it to the next free
+        ``PreprocessedData_<letter>`` (``_b``, ``_c``, ``_d`` …) so the new
+        run starts in a fresh folder while old data is preserved alongside.
         """
         preprocessed_dir = subject.path / "PreprocessedData"
+
+        # Archive previous run, if requested and not empty
+        if self.config.get("archive_previous_run", True):
+            self._archive_existing_preprocessed_dir(subject, preprocessed_dir)
 
         # Create folder if it doesn't exist
         if not preprocessed_dir.exists():

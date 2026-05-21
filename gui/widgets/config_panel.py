@@ -52,6 +52,17 @@ class ConfigPanel(QWidget):
         self.stop_on_error_check.stateChanged.connect(self.on_config_changed)
         exec_layout.addWidget(self.stop_on_error_check)
 
+        self.archive_run_check = QCheckBox(
+            "Archive existing PreprocessedData → PreprocessedData_b, _c, _d…"
+        )
+        self.archive_run_check.setToolTip(
+            "If a PreprocessedData folder already exists with data, rename it\n"
+            "to the next free PreprocessedData_<letter> before starting, so the\n"
+            "new run begins in a fresh folder. Disable to allow resuming."
+        )
+        self.archive_run_check.stateChanged.connect(self.on_config_changed)
+        exec_layout.addWidget(self.archive_run_check)
+
         exec_group.setLayout(exec_layout)
         layout.addWidget(exec_group)
 
@@ -228,6 +239,7 @@ class ConfigPanel(QWidget):
 
         # Stop on error
         self.stop_on_error_check.setChecked(self.config.get("stop_on_error", False))
+        self.archive_run_check.setChecked(self.config.get("archive_previous_run", True))
 
         # FreeSurfer path
         default_path = self.get_default_freesurfer_path()
@@ -248,6 +260,9 @@ class ConfigPanel(QWidget):
 
         # Stop on error
         self.config.set("stop_on_error", self.stop_on_error_check.isChecked())
+
+        # Archive previous PreprocessedData on rerun
+        self.config.set("archive_previous_run", self.archive_run_check.isChecked())
 
         # FreeSurfer path
         self.config.set("freesurfer_home", self.freesurfer_path_edit.text())
