@@ -13,7 +13,7 @@ from gui.widgets.progress_panel import ProgressPanel
 from gui.widgets.config_panel import ConfigPanel
 
 from core.config_manager import ConfigManager
-from core.logger import PipelineLogger
+from core.logger import PipelineLogger, install_stdout_stderr_capture
 from core.pipeline_manager import PipelineManager, Subject
 
 
@@ -26,6 +26,10 @@ class MainWindow(QMainWindow):
         # Initialize managers
         self.config = ConfigManager()
         self.logger = PipelineLogger()
+        # Mirror anything printed to sys.stdout / sys.stderr (uncaught
+        # tracebacks, ad-hoc print() calls, library messages) into the GUI's
+        # Pipeline tab via the same signal the rest of the logger uses.
+        install_stdout_stderr_capture(self.logger.signals)
         self.pipeline_manager = None
 
         # Settings for window geometry

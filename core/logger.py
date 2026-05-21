@@ -23,6 +23,69 @@ class LogSignals(QObject):
     log_message = pyqtSignal(str, str)  # message, level
 
 
+class _TeeStream:
+    """File-like wrapper that writes to a real stream AND emits each line
+    via a Qt signal.  Used to mirror sys.stdout / sys.stderr into the GUI's
+    Pipeline tab so the terminal and GUI show the same content.
+    """
+
+    def __init__(self, original, signal_emitter, level: str = "INFO"):
+        self._original = original
+        self._signals = signal_emitter
+        self._level = level
+        self._buffer = ""
+
+    def write(self, data):
+        if data:
+            try:
+                self._original.write(data)
+            except Exception:
+                pass
+            self._buffer += data
+            while "\n" in self._buffer:
+                line, self._buffer = self._buffer.split("\n", 1)
+                if line.strip():
+                    try:
+                        self._signals.log_message.emit(line, self._level)
+                    except RuntimeError:
+                        # signal target deleted (e.g. during shutdown)
+                        pass
+        return len(data) if data else 0
+
+    def flush(self):
+        try:
+            self._original.flush()
+        except Exception:
+            pass
+        if self._buffer.strip():
+            try:
+                self._signals.log_message.emit(self._buffer.rstrip("\n"), self._level)
+            except RuntimeError:
+                pass
+        self._buffer = ""
+
+    def isatty(self):
+        try:
+            return self._original.isatty()
+        except Exception:
+            return False
+
+    def fileno(self):
+        return self._original.fileno()
+
+
+def install_stdout_stderr_capture(signals: "LogSignals"):
+    """Tee sys.stdout/sys.stderr through the GUI signal emitter.
+
+    Safe to call once at startup.  Returns the originals so they can be
+    restored on shutdown if needed.
+    """
+    original_out, original_err = sys.stdout, sys.stderr
+    sys.stdout = _TeeStream(original_out, signals, "INFO")
+    sys.stderr = _TeeStream(original_err, signals, "ERROR")
+    return original_out, original_err
+
+
 class PipelineLogger:
     """Logger for pipeline operations"""
 

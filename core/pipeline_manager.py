@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, TextIO
 from PyQt6.QtCore import QObject, pyqtSignal
-from .script_runner import ScriptRunner, DirectScriptRunner
+from .script_runner import ScriptRunner, DirectScriptRunner, FileTailer
 from .config_manager import ConfigManager
 from .logger import PipelineLogger
 
@@ -86,6 +86,10 @@ class PipelineManager(QObject):
 
         # Per-subject log file handles: subject_id -> file handle
         self._subject_logs: Dict[str, TextIO] = {}
+
+        # Active FileTailer (for recon-all.log etc.); one at a time, matches
+        # the lifecycle of the script that owns the log it's following.
+        self._tailer: Optional[FileTailer] = None
 
         # Define pipeline scripts
         base_path = Path(__file__).parent.parent / "scripts" / "templates"
@@ -833,6 +837,10 @@ class PipelineManager(QObject):
         )
         self.current_runner.start()
 
+        # For mostly-silent long-running tools, also tail their own log file
+        # into the GUI so the user sees live progress.
+        self._start_progress_tailer(subject, script)
+
     def _run_proc_script(self, subject: Subject, script: ScriptInfo):
         """Run the generated proc script"""
         proc_script_path = subject.path / "PreprocessedData" / f"proc.{subject.subject_id}"
@@ -963,6 +971,40 @@ class PipelineManager(QObject):
 
         return count
 
+    # ── Progress tailer (for tools that are silent on stdout) ─────────────
+    def _start_progress_tailer(self, subject: Subject, script: ScriptInfo):
+        """Start tailing a tool-specific log file into the GUI for this script."""
+        self._stop_progress_tailer()  # safety: ensure no prior tailer is alive
+
+        log_path = None
+        if script.name == "003_FreeSurfer_recon":
+            # recon-all writes to <SUBJECTS_DIR>/<subj>/scripts/recon-all.log
+            log_path = (subject.path / "PreprocessedData" /
+                        subject.subject_id / "scripts" / "recon-all.log")
+
+        if log_path is None:
+            return
+
+        tailer = FileTailer(log_path)
+        # Each tailed line goes through the same handler as stdout — so the
+        # log viewer, the per-subject preprocessing.log, and the AFNI-aware
+        # classifier all see it consistently.
+        tailer.line_emitted.connect(
+            lambda line, sid=subject.subject_id: self._handle_output(sid, line)
+        )
+        tailer.start()
+        self._tailer = tailer
+        self.logger.info(f"Tailing {log_path.name} for live progress")
+
+    def _stop_progress_tailer(self):
+        if self._tailer is not None:
+            try:
+                self._tailer.stop()
+                self._tailer.wait(2000)  # up to 2s
+            except Exception:
+                pass
+            self._tailer = None
+
     def _handle_output(self, subject_id: str, line: str):
         """Handle output line from script"""
         self.logger.info(line)
@@ -977,6 +1019,9 @@ class PipelineManager(QObject):
 
     def _handle_script_finished(self, subject: Subject, script: ScriptInfo, success: bool, return_code: int):
         """Handle script completion"""
+        # Stop any active progress tailer first so its lines don't clobber the
+        # "DONE" boundary about to be written.
+        self._stop_progress_tailer()
         if success:
             self.logger.info(f"✓ {script.description} completed successfully")
             subject.status[script.name] = "completed"
@@ -1048,7 +1093,8 @@ class PipelineManager(QObject):
     def _finish_pipeline(self, success: bool):
         """Finish pipeline execution"""
         self.is_running = False
-        # Close any per-subject log files still open (Stop / mid-run failure)
+        # Stop any tailer and close any per-subject log files still open
+        self._stop_progress_tailer()
         for sid in list(self._subject_logs.keys()):
             self._close_subject_log(sid)
         self.signals.pipeline_finished.emit(success)

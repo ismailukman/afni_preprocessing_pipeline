@@ -1,6 +1,7 @@
 """Script execution utilities for running tcsh scripts"""
 import subprocess
 import os
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
@@ -12,6 +13,60 @@ class ScriptRunnerSignals(QObject):
     error_line = pyqtSignal(str)  # Single line of error
     finished = pyqtSignal(bool, int)  # success, return_code
     progress = pyqtSignal(int)  # Progress percentage (if available)
+
+
+class FileTailer(QThread):
+    """Tail -f equivalent that emits each new line as a signal.
+
+    Used to stream `recon-all.log` (or any other long-running tool's own log
+    file) into the GUI while the launching process itself is mostly silent on
+    stdout.  Waits for the file to appear before tailing, then seeks to end
+    and polls for new lines.  Stop with ``.stop()``.
+    """
+
+    line_emitted = pyqtSignal(str)
+
+    def __init__(self, path: Path, poll_interval: float = 0.5,
+                 wait_timeout: float = 600.0, parent=None):
+        super().__init__(parent)
+        self.path = Path(path)
+        self.poll_interval = poll_interval
+        self.wait_timeout = wait_timeout    # seconds to wait for the file to appear
+        self._should_stop = False
+
+    def stop(self):
+        self._should_stop = True
+
+    def run(self):
+        # Wait for the file to exist (recon-all takes a moment to create it)
+        waited = 0.0
+        while not self.path.exists():
+            if self._should_stop:
+                return
+            time.sleep(self.poll_interval)
+            waited += self.poll_interval
+            if waited >= self.wait_timeout:
+                return  # gave up waiting
+
+        try:
+            fh = open(self.path, "r", encoding="utf-8", errors="replace")
+        except OSError:
+            return
+
+        try:
+            fh.seek(0, 2)  # jump to end — only emit *new* content
+            while not self._should_stop:
+                line = fh.readline()
+                if line:
+                    # readline returns with trailing newline; strip for display
+                    self.line_emitted.emit(line.rstrip("\n"))
+                else:
+                    time.sleep(self.poll_interval)
+        finally:
+            try:
+                fh.close()
+            except OSError:
+                pass
 
 
 class ScriptRunner(QThread):
