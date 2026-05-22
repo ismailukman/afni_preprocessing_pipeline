@@ -1,5 +1,6 @@
 """Pipeline manager for orchestrating the AFNI preprocessing workflow"""
 import os
+import re
 import string
 import subprocess
 import shutil
@@ -365,41 +366,33 @@ class PipelineManager(QObject):
                 self.logger.error(f"Failed to create PreprocessedData folder: {e}")
                 return
 
-        # Check if PreprocessedData has the required BIDS-formatted files
-        required_structural = [
-            preprocessed_dir / f"{subject.subject_id}_T1w.nii.gz",
-            preprocessed_dir / f"{subject.subject_id}_T1w.nii",
-        ]
-        required_functional = [
-            preprocessed_dir / f"{subject.subject_id}_task-rest_run-01_bold.nii.gz",
-            preprocessed_dir / f"{subject.subject_id}_task-rest_run-01_bold.nii",
-        ]
-
-        has_structural = any(f.exists() for f in required_structural)
-        has_functional = any(f.exists() for f in required_functional)
-
-        if has_structural and has_functional:
-            self.logger.info(f"✓ PreprocessedData contains required BIDS files")
+        # The downstream csh scripts (001c / 002 / 004 / 005 / 006) all use
+        # AFNI naming:  struct+orig.nii.gz,  func_run<N>+orig.nii.gz,
+        # func_run<N>_df+orig.nii.gz, etc.  If any of those already exist,
+        # we trust them and skip prep entirely.  Otherwise we copy parent-level
+        # NIfTI into PreprocessedData using AFNI naming so 001c can pick up
+        # the renaming consistently.
+        has_struct_afni = (
+            any(preprocessed_dir.glob("struct+orig.nii*"))
+            or any(preprocessed_dir.glob("struct*+orig.nii*"))
+        )
+        has_func_afni = any(preprocessed_dir.glob("func_run*+orig.nii*"))
+        if has_struct_afni and has_func_afni:
+            self.logger.info("✓ PreprocessedData already has AFNI-named files")
             return
 
-        if not has_structural:
-            self.logger.info("Missing BIDS structural file, will search for it...")
-        if not has_functional:
-            self.logger.info("Missing BIDS functional file, will search for it...")
+        if not has_struct_afni:
+            self.logger.info("No AFNI-named structural yet — will scan and prepare")
+        if not has_func_afni:
+            self.logger.info("No AFNI-named functional yet — will scan and prepare")
 
-        # Scan BOTH parent folder AND PreprocessedData for NIfTI files
-        self.logger.info("Scanning for NIfTI files to prepare...")
-
-        # Collect all NIfTI files from both locations
+        # Collect NIfTI from parent + from PreprocessedData itself (in case
+        # dcm2niix already dropped output there with its default naming)
         all_nifti_files = []
-
-        # Scan parent folder
-        parent_nifti = list(subject.path.glob("*.nii")) + list(subject.path.glob("*.nii.gz"))
-        all_nifti_files.extend(parent_nifti)
-
-        # Scan PreprocessedData (for files with wrong names)
-        existing_nifti = list(preprocessed_dir.glob("*.nii")) + list(preprocessed_dir.glob("*.nii.gz"))
-        all_nifti_files.extend(existing_nifti)
+        all_nifti_files.extend(subject.path.glob("*.nii"))
+        all_nifti_files.extend(subject.path.glob("*.nii.gz"))
+        all_nifti_files.extend(preprocessed_dir.glob("*.nii"))
+        all_nifti_files.extend(preprocessed_dir.glob("*.nii.gz"))
 
         if not all_nifti_files:
             self.logger.warning(f"No NIfTI files found in {subject.path} or PreprocessedData")
@@ -407,80 +400,52 @@ class PipelineManager(QObject):
 
         self.logger.info(f"Found {len(all_nifti_files)} NIfTI file(s) to scan")
 
-        # Intelligently identify and prepare files
-        structural_found = False
-        functional_count = 0
+        structural_n = 0   # 0 → struct+orig; 1+ → struct2+orig, struct3+orig, ...
+        functional_n = 0
+        # Existing AFNI-named files set our counters so we append rather than clash
+        for existing in preprocessed_dir.glob("struct*+orig.nii*"):
+            structural_n += 1
+        for existing in preprocessed_dir.glob("func_run*+orig.nii*"):
+            functional_n += 1
 
         for nifti_file in all_nifti_files:
-            # Skip files already in correct BIDS format
-            if nifti_file.parent == preprocessed_dir:
-                # Check if already in correct BIDS format
-                if nifti_file.name.startswith(f"{subject.subject_id}_T1w"):
-                    self.logger.info(f"  Skipping (already BIDS structural): {nifti_file.name}")
-                    has_structural = True
-                    continue
-                elif nifti_file.name.startswith(f"{subject.subject_id}_task-rest_run-"):
-                    self.logger.info(f"  Skipping (already BIDS functional): {nifti_file.name}")
-                    continue
+            base = nifti_file.name
+            # Skip files already in AFNI-canonical naming (or intermediate)
+            if (base.startswith("struct+orig") or
+                re.match(r"struct\d+\+orig", base) or
+                base.startswith("func_run") or
+                base.startswith("df_") or
+                "_df" in base or "_mask" in base or "_rf." in base or ".face." in base):
+                continue
 
-            # Determine scan type using 3dinfo
-            if not has_structural and self._is_structural_scan(nifti_file):
-                # Copy/rename structural file
-                if str(nifti_file).endswith('.gz'):
-                    dest_file = preprocessed_dir / f"{subject.subject_id}_T1w.nii.gz"
-                else:
-                    dest_file = preprocessed_dir / f"{subject.subject_id}_T1w.nii"
-
-                if nifti_file.parent == preprocessed_dir:
-                    # File is already in PreprocessedData, just rename it
-                    self.logger.info(f"Renaming structural: {nifti_file.name} → {dest_file.name}")
-                    nifti_file.rename(dest_file)
-                else:
-                    # File is in parent folder, copy it
-                    self.logger.info(f"Copying structural: {nifti_file.name} → {dest_file.name}")
-                    shutil.copy2(nifti_file, dest_file)
-
-                # Compress if not already compressed
-                if not str(dest_file).endswith('.gz'):
-                    self.logger.info(f"Compressing {dest_file.name}...")
-                    subprocess.run(['gzip', '-f', str(dest_file)], check=True)
-                    self.logger.info(f"  → {dest_file.name}.gz")
-
-                structural_found = True
-                has_structural = True
-
+            # Classify with 3dinfo
+            if self._is_structural_scan(nifti_file):
+                structural_n += 1
+                tag = "struct+orig" if structural_n == 1 else f"struct{structural_n}+orig"
+                dest = preprocessed_dir / f"{tag}.nii.gz"
             elif self._is_functional_scan(nifti_file):
-                # Count existing BIDS functional runs to determine run number
-                existing_runs = list(preprocessed_dir.glob(f"{subject.subject_id}_task-rest_run-*_bold.nii*"))
-                functional_count = len(existing_runs) + 1
+                functional_n += 1
+                dest = preprocessed_dir / f"func_run{functional_n}+orig.nii.gz"
+            else:
+                continue   # unknown scan type — leave alone
 
-                # Copy/rename functional file
-                if str(nifti_file).endswith('.gz'):
-                    dest_file = preprocessed_dir / f"{subject.subject_id}_task-rest_run-{functional_count:02d}_bold.nii.gz"
-                else:
-                    dest_file = preprocessed_dir / f"{subject.subject_id}_task-rest_run-{functional_count:02d}_bold.nii"
+            # Move (in-place) or copy (from parent) into AFNI naming
+            if nifti_file.parent == preprocessed_dir:
+                self.logger.info(f"Renaming: {nifti_file.name} → {dest.name}")
+                nifti_file.rename(dest if str(dest).endswith(".gz") else dest.with_suffix(""))
+            else:
+                self.logger.info(f"Copying:  {nifti_file.name} → PreprocessedData/{dest.name}")
+                shutil.copy2(nifti_file, dest if str(dest).endswith(".gz") else dest.with_suffix(""))
 
-                if nifti_file.parent == preprocessed_dir:
-                    # File is already in PreprocessedData, just rename it
-                    self.logger.info(f"Renaming functional: {nifti_file.name} → {dest_file.name}")
-                    nifti_file.rename(dest_file)
-                else:
-                    # File is in parent folder, copy it
-                    self.logger.info(f"Copying functional: {nifti_file.name} → {dest_file.name}")
-                    shutil.copy2(nifti_file, dest_file)
+            # Compress bare .nii to .nii.gz to match downstream expectations
+            if not str(dest).endswith(".gz") and not dest.exists():
+                bare = dest.with_suffix("")
+                if bare.exists():
+                    subprocess.run(["gzip", "-f", str(bare)], check=True)
 
-                # Compress if not already compressed
-                if not str(dest_file).endswith('.gz'):
-                    self.logger.info(f"Compressing {dest_file.name}...")
-                    subprocess.run(['gzip', '-f', str(dest_file)], check=True)
-                    self.logger.info(f"  → {dest_file.name}.gz")
-
-        if structural_found:
-            self.logger.info(f"✓ Prepared {functional_count} functional + 1 structural file(s) in PreprocessedData")
-        elif has_structural:
-            self.logger.info(f"✓ BIDS structural file already exists")
-        else:
-            self.logger.warning("No structural scan found")
+        self.logger.info(
+            f"✓ Prepared {functional_n} functional + {structural_n} structural file(s) (AFNI naming)"
+        )
 
     def _is_functional_scan(self, nifti_file: Path) -> bool:
         """Determine if a NIfTI file is functional (BOLD) using 3dinfo.
@@ -770,8 +735,7 @@ class PipelineManager(QObject):
         sid = subject.subject_id
 
         if script.name == "001a_dcm2niix":
-            for pat in (f"{sid}_task-rest_run-*.nii*", f"{sid}_T1w.nii*",
-                        "func_run*+orig.nii*", "struct*+orig.nii*",
+            for pat in ("func_run*+orig.nii*", "struct+orig.nii*", "struct*+orig.nii*",
                         "*.nii.gz", "*.nii"):
                 m = list(pre.glob(pat))
                 if m:
@@ -779,10 +743,12 @@ class PipelineManager(QObject):
                     return True
 
         elif script.name == "001c_rename_files":
-            if (any(pre.glob(f"{sid}_T1w.nii*")) or any(pre.glob("struct+orig.nii*"))
-                    or any(pre.glob(f"{sid}_task-rest_run-*_bold.nii*"))
-                    or any(pre.glob("func_run*+orig.nii*"))):
-                self.logger.info("✓ Files already standardized, skipping rename")
+            # Canonical AFNI-named files = 001c has already done its job.
+            # We deliberately do NOT treat dcm2niix's raw output (with run/series
+            # names) as "already standardized" — 001c must still rename those.
+            if (any(pre.glob("struct+orig.nii*"))
+                    and any(pre.glob("func_run*+orig.nii*"))):
+                self.logger.info("✓ Files already AFNI-renamed, skipping 001c")
                 return True
 
         elif script.name == "002_batch_defaceMRI":
