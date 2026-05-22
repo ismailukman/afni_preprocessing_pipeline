@@ -1,10 +1,56 @@
 """Script execution utilities for running tcsh scripts"""
 import subprocess
 import os
+import signal
 import time
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
+
+
+def _popen_in_new_pgroup(*args, **kwargs):
+    """Spawn a subprocess in its own process group on POSIX.
+
+    Putting each tcsh child in a new pgroup lets us kill its *entire* tree
+    (recon-all, mri_ca_register, fs_time, tee, etc.) with one os.killpg
+    instead of just terminating the direct child and leaving grandchildren
+    orphaned.  On Windows we use CREATE_NEW_PROCESS_GROUP for the same effect.
+    """
+    if os.name == "posix":
+        kwargs.setdefault("preexec_fn", os.setsid)
+    else:
+        creationflags = kwargs.get("creationflags", 0)
+        kwargs["creationflags"] = creationflags | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    return subprocess.Popen(*args, **kwargs)
+
+
+def _kill_process_tree(proc):
+    """Best-effort kill of a Popen and every descendant in its group."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(pgid, signal.SIGKILL)
+        else:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
 
 class ScriptRunnerSignals(QObject):
@@ -92,19 +138,19 @@ class ScriptRunner(QThread):
             env.update(self.env_vars)
 
             # Start process
-            self.process = subprocess.Popen(
+            self.process = _popen_in_new_pgroup(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
                 universal_newlines=True,
-                bufsize=1
+                bufsize=1,
             )
 
             # Read output in real-time
             while True:
                 if self._should_stop:
-                    self.process.kill()
+                    _kill_process_tree(self.process)
                     self.signals.finished.emit(False, -1)
                     return
 
@@ -134,14 +180,9 @@ class ScriptRunner(QThread):
             self.signals.finished.emit(False, -1)
 
     def stop(self):
-        """Stop the running process"""
+        """Stop the running process and ALL its descendants."""
         self._should_stop = True
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+        _kill_process_tree(self.process)
 
 
 class DirectScriptRunner(QThread):
@@ -159,19 +200,19 @@ class DirectScriptRunner(QThread):
         try:
             cmd = ['tcsh', '-xef', str(self.proc_script_path)]
 
-            self.process = subprocess.Popen(
+            self.process = _popen_in_new_pgroup(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 universal_newlines=True,
                 bufsize=1,
-                cwd=self.proc_script_path.parent
+                cwd=self.proc_script_path.parent,
             )
 
             # Read output in real-time
             while True:
                 if self._should_stop:
-                    self.process.kill()
+                    _kill_process_tree(self.process)
                     self.signals.finished.emit(False, -1)
                     return
 
@@ -197,11 +238,6 @@ class DirectScriptRunner(QThread):
             self.signals.finished.emit(False, -1)
 
     def stop(self):
-        """Stop the running process"""
+        """Stop the running process and ALL its descendants."""
         self._should_stop = True
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+        _kill_process_tree(self.process)

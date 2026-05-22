@@ -175,6 +175,13 @@ class PipelineManager(QObject):
             self.logger.error("No subjects to process")
             return
 
+        if self.is_running:
+            # Guard: don't fire a second pipeline on top of a running one.
+            self.logger.warning(
+                "start_pipeline() called while a pipeline is already running — ignored."
+            )
+            return
+
         self.is_running = True
         self.should_stop = False
         self.signals.pipeline_started.emit()
