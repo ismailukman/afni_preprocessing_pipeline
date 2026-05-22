@@ -3,7 +3,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QSplitter, QTabWidget, QMenuBar, QMenu, QMessageBox,
                               QDialog, QDialogButtonBox, QLabel, QScrollArea)
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, QTimer
 from PyQt6.QtGui import QAction, QIcon, QPixmap
 
 from gui.widgets.subject_selector import SubjectSelector
@@ -12,6 +12,7 @@ from gui.widgets.log_viewer import LogViewer
 from gui.widgets.progress_panel import ProgressPanel
 from gui.widgets.config_panel import ConfigPanel
 from gui.widgets.env_status import EnvironmentStatus
+from gui.widgets.orphan_check import prompt_kill_orphans
 
 from core.config_manager import ConfigManager
 from core.logger import PipelineLogger, install_stdout_stderr_capture
@@ -39,6 +40,10 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.setup_connections()
         self.restore_window_state()
+        # Scan for leftover recon-all / mri_* from a previous crash or unclean exit.
+        # Silent when nothing is found — only prompts the user if there's actually
+        # an orphaned process to deal with.
+        QTimer.singleShot(500, lambda: prompt_kill_orphans(self, silent_when_none=True))
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -465,6 +470,11 @@ class MainWindow(QMainWindow):
                 "and place it in the FreeSurfer home directory before running step 003."
             )
             # Not a hard stop — user may have set FS_LICENSE elsewhere
+
+        # Catch orphaned recon-all / mri_* from a previous unclean shutdown.
+        # If any are present, the user gets a clear prompt to kill them before
+        # we spawn a fresh recon-all that would otherwise compete with them.
+        prompt_kill_orphans(self, silent_when_none=True)
 
         # Ask Continue / Restart for any subject with existing PreprocessedData
         if not self._resolve_archive_choices(subjects):
