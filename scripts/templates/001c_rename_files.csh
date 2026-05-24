@@ -41,9 +41,15 @@ endif
 
 echo "  Found ${nifti_count} NIfTI file(s)"
 
-# Identify structural vs functional using 3dinfo -nv
+# Minimum TPs to qualify as a real fMRI run.  Calibration / reference /
+# fieldmap / DWI prep scans often have 5-40 vols and would otherwise be
+# misclassified as functional, causing TR mismatch in afni_proc.py.
+set MIN_FUNC_TPS = 50
+
+# Identify structural vs functional using 3dinfo -nv (3-way classifier)
 set func_count = 0
 set struct_count = 0
+set other_count = 0
 foreach f ($nifti_files)
     set base = `basename "$f"`
 
@@ -80,8 +86,8 @@ foreach f ($nifti_files)
     # Derive json source path
     set json_src = `echo "$f" | sed 's/\.nii\.gz$/.json/' | sed 's/\.nii$/.json/'`
 
-    if ($nv > 1) then
-        # Functional scan (multiple volumes)
+    if ($nv >= $MIN_FUNC_TPS) then
+        # Functional scan (long multi-volume time series)
         @ func_count++
         set dest = "${fpath}/func_run${func_count}+orig.${ext}"
         echo "  Functional: $base -> func_run${func_count}+orig.${ext} (nv=${nv}, TR=${tr_val}s)"
@@ -89,7 +95,7 @@ foreach f ($nifti_files)
         if (-f "$json_src") then
             mv "$json_src" "${fpath}/func_run${func_count}+orig.json"
         endif
-    else
+    else if ($nv == 1) then
         # Structural scan (single volume)
         @ struct_count++
         if ($struct_count == 1) then
@@ -106,6 +112,16 @@ foreach f ($nifti_files)
                 mv "$json_src" "${fpath}/struct${struct_count}+orig.json"
             endif
         endif
+    else
+        # Short multi-volume scan — likely calibration / reference / fieldmap.
+        # Park in _other_scans/ so it doesn't pollute the fMRI pipeline.
+        @ other_count++
+        if (! -d "${fpath}/_other_scans") mkdir "${fpath}/_other_scans"
+        echo "  OTHER:      $base -> _other_scans/  (nv=${nv}, TR=${tr_val}s) [excluded — nv < ${MIN_FUNC_TPS}]"
+        mv "$f" "${fpath}/_other_scans/$base.$ext"
+        if (-f "$json_src") then
+            mv "$json_src" "${fpath}/_other_scans/$base.json"
+        endif
     endif
 end
 
@@ -116,5 +132,5 @@ foreach f ($func_renamed)
     echo "  Verified TR for `basename $f`: ${tr_check}s"
 end
 
-echo "  Renamed: ${func_count} functional run(s), ${struct_count} structural file(s)"
+echo "  Renamed: ${func_count} functional run(s), ${struct_count} structural file(s), ${other_count} other scan(s) parked in _other_scans/"
 echo "=== Step 001c: COMPLETE ==="
